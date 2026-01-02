@@ -1,19 +1,26 @@
 ﻿namespace Sheetly.Core;
 
-
 public class ModelBuilder
 {
-	private readonly Dictionary<Type, EntityBuilder> _entityBuilders = [];
+	private readonly Dictionary<Type, EntityMetadata> builders = [];
 
-	public EntityBuilder<T> Entity<T>() where T : class
+	public ModelBuilder Entity<T>(Action<EntityTypeBuilder<T>> buildAction) where T : class
 	{
-		var type = typeof(T);
-		if (!_entityBuilders.ContainsKey(type))
-		{
-			_entityBuilders[type] = new EntityBuilder<T>();
-		}
-		return (EntityBuilder<T>)_entityBuilders[type];
+		var builder = Entity<T>();
+		buildAction(builder);
+		return this;
 	}
 
-	internal Dictionary<Type, EntityBuilder> GetBuilders() => _entityBuilders;
+	public EntityTypeBuilder<T> Entity<T>() where T : class
+	{
+		var type = typeof(T);
+		if (!builders.TryGetValue(type, out EntityMetadata? value))
+		{
+            value = new EntityTypeBuilder<T>();
+            builders[type] = value;
+		}
+		return (EntityTypeBuilder<T>)value;
+	}
+
+	internal Dictionary<Type, EntityMetadata> GetMetadata() => builders;
 }

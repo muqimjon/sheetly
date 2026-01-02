@@ -2,53 +2,68 @@
 
 public class SheetsConnectionString
 {
-    public string Provider { get; private set; } = string.Empty;
-    public string CredentialsPath { get; private set; } = string.Empty;
-    public string SpreadsheetId { get; private set; } = string.Empty;
-    public string MigrationPath { get; private set; } = ".sheetly/migration.json";
+	public string Provider { get; private set; } = "GoogleSheets";
+	public string CredentialsPath { get; private set; } = string.Empty;
+	public string SpreadsheetId { get; private set; } = string.Empty;
+	public string MigrationPath { get; private set; } = "Migrations";
 
-    public static SheetsConnectionString Parse(string connectionString)
-    {
-        var result = new SheetsConnectionString();
-        var pairs = connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries);
+	public static SheetsConnectionString Parse(string connectionString)
+	{
+		var result = new SheetsConnectionString();
+		if (string.IsNullOrWhiteSpace(connectionString)) return result;
 
-        foreach (var pair in pairs)
-        {
-            var parts = pair.Split('=', 2);
-            if (parts.Length != 2) continue;
+		var pairs = connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries);
 
-            var key = parts[0].Trim();
-            var value = parts[1].Trim();
+		foreach (var pair in pairs)
+		{
+			var parts = pair.Split('=', 2);
+			if (parts.Length != 2) continue;
 
-            switch (key.ToLowerInvariant())
-            {
-                case "provider":
-                    result.Provider = value;
-                    break;
-                case "credentialspath":
-                    result.CredentialsPath = value;
-                    break;
-                case "spreadsheetid":
-                    result.SpreadsheetId = value;
-                    break;
-                case "migrationpath":
-                    result.MigrationPath = value;
-                    break;
-            }
-        }
+			var key = parts[0].Trim().ToLowerInvariant();
+			var value = parts[1].Trim();
 
-        return result;
-    }
+			switch (key)
+			{
+				case "provider":
+					result.Provider = value;
+					break;
+				case "credentialspath":
+				case "json_path":
+				case "credentials":
+					result.CredentialsPath = value;
+					break;
+				case "spreadsheetid":
+				case "spreadsheet_id":
+				case "id":
+					result.SpreadsheetId = value;
+					break;
+				case "migrationpath":
+				case "migrations":
+					result.MigrationPath = value;
+					break;
+			}
+		}
 
-    public void Validate()
-    {
-        if (string.IsNullOrWhiteSpace(Provider))
-            throw new InvalidOperationException("Provider is required in connection string");
+		if (string.IsNullOrWhiteSpace(result.Provider) || result.Provider == "GoogleSheets")
+		{
+			if (!string.IsNullOrWhiteSpace(result.CredentialsPath) || !string.IsNullOrWhiteSpace(result.SpreadsheetId))
+			{
+				result.Provider = "GoogleSheets";
+			}
+		}
 
-        if (string.IsNullOrWhiteSpace(CredentialsPath))
-            throw new InvalidOperationException("CredentialsPath is required in connection string");
+		return result;
+	}
 
-        if (string.IsNullOrWhiteSpace(SpreadsheetId))
-            throw new InvalidOperationException("SpreadsheetId is required in connection string");
-    }
+	public void Validate()
+	{
+		if (string.IsNullOrWhiteSpace(Provider))
+			throw new InvalidOperationException("Provider is required in connection string");
+
+		if (string.IsNullOrWhiteSpace(CredentialsPath))
+			throw new InvalidOperationException("CredentialsPath (JSON_PATH) is required in connection string");
+
+		if (string.IsNullOrWhiteSpace(SpreadsheetId))
+			throw new InvalidOperationException("SpreadsheetId is required in connection string");
+	}
 }

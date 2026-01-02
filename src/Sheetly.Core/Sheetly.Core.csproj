@@ -1,9 +1,20 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
 
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
+		<PackageId>Sheetly.Core</PackageId>
+		<Version>1.0.2</Version>
+		<Company>Dotnetolog</Company>
+		<Authors>Muqimjon Mamadaliyev</Authors>
 
+		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="ClosedXML" Version="0.105.0" />
+		<PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.1" />
+		<PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.1" />
+	</ItemGroup>
 </Project>

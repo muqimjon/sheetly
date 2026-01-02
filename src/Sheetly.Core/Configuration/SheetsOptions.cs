@@ -1,14 +1,18 @@
-﻿namespace Sheetly.DependencyInjection.Options;
+﻿using Sheetly.Core.Abstractions;
+
+namespace Sheetly.Core.Configuration;
 
 public class SheetsOptions
 {
-	public string? CredentialsPath { get; set; }
-	public string? SpreadsheetId { get; set; }
+	public string? ConnectionString { get; set; }
+	public ISheetsProvider? Provider { get; set; }
 	public string MigrationsFolder { get; set; } = "Migrations";
 	public string SnapshotFileName { get; set; } = "sheetly_snapshot.json";
+	public string? MigrationsAssembly { get; set; }
 
-	public string GetFullSnapshotPath()
+	public string GetFullSnapshotPath(string? projectRoot = null)
 	{
-		return Path.Combine(Directory.GetCurrentDirectory(), MigrationsFolder, SnapshotFileName);
+		var root = projectRoot ?? Directory.GetCurrentDirectory();
+		return Path.Combine(root, MigrationsFolder, SnapshotFileName);
 	}
 }

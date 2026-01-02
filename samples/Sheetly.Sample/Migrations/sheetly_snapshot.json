@@ -1,43 +1,104 @@
 {
-  "ModelHash": "riIO6OssPhg9qBowfHW9G0A6FAHqC\u002BffI3b9EzB9Hlk=",
+  "ModelHash": "CMul8qInoh3GBPIDKbVdnytDsuixDGF\u002BRWsRBsIJFBg=",
   "Version": "1.0.0",
-  "LastUpdated": "2026-01-01T00:41:09.0057109Z",
+  "LastUpdated": "2026-01-02T00:40:35.9516552Z",
   "Entities": {
-    "Product": {
-      "TableName": "Product",
+    "Categories": {
+      "TableName": "Categories",
+      "ClassName": "Category",
+      "Namespace": "Sheetly.Sample.Models",
+      "Columns": [
+        {
+          "Name": "Id",
+          "PropertyName": "Id",
+          "DataType": "Int64",
+          "IsPrimaryKey": true,
+          "IsForeignKey": false,
+          "RelatedTable": null,
+          "IsNullable": false,
+          "MaxLength": null,
+          "DefaultValue": null,
+          "Attributes": null
+        },
+        {
+          "Name": "Category_Name",
+          "PropertyName": "Name",
+          "DataType": "String",
+          "IsPrimaryKey": false,
+          "IsForeignKey": false,
+          "RelatedTable": null,
+          "IsNullable": true,
+          "MaxLength": null,
+          "DefaultValue": null,
+          "Attributes": null
+        }
+      ],
+      "Relationships": []
+    },
+    "Products": {
+      "TableName": "Products",
+      "ClassName": "Product",
+      "Namespace": "Sheetly.Sample.Models",
       "Columns": [
         {
           "Name": "Id",
           "PropertyName": "Id",
           "DataType": "Int32",
-          "IsPrimaryKey": true
+          "IsPrimaryKey": true,
+          "IsForeignKey": false,
+          "RelatedTable": null,
+          "IsNullable": false,
+          "MaxLength": null,
+          "DefaultValue": null,
+          "Attributes": null
         },
         {
-          "Name": "Name",
-          "PropertyName": "Name",
+          "Name": "Title",
+          "PropertyName": "Title",
           "DataType": "String",
-          "IsPrimaryKey": false
+          "IsPrimaryKey": false,
+          "IsForeignKey": false,
+          "RelatedTable": null,
+          "IsNullable": true,
+          "MaxLength": null,
+          "DefaultValue": null,
+          "Attributes": null
         },
         {
-          "Name": "Price",
+          "Name": "Market_Price",
           "PropertyName": "Price",
           "DataType": "Decimal",
-          "IsPrimaryKey": false
+          "IsPrimaryKey": false,
+          "IsForeignKey": false,
+          "RelatedTable": null,
+          "IsNullable": true,
+          "MaxLength": null,
+          "DefaultValue": null,
+          "Attributes": null
         },
         {
-          "Name": "InStock",
-          "PropertyName": "InStock",
-          "DataType": "Boolean",
-          "IsPrimaryKey": false
-        },
-        {
-          "Name": "Description",
-          "PropertyName": "Description",
-          "DataType": "String",
-          "IsPrimaryKey": false
+          "Name": "CategoryId",
+          "PropertyName": "CategoryId",
+          "DataType": "Int32",
+          "IsPrimaryKey": false,
+          "IsForeignKey": true,
+          "RelatedTable": "Categories",
+          "IsNullable": false,
+          "MaxLength": null,
+          "DefaultValue": null,
+          "Attributes": null
         }
       ],
-      "LastId": 0
+      "Relationships": [
+        {
+          "FromProperty": "CategoryId",
+          "ToTable": "Categories",
+          "Type": 2
+        }
+      ]
     }
+  },
+  "Metadata": {
+    "OutputDir": "Migrations"
   }
 }

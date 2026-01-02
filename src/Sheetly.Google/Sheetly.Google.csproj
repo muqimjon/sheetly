@@ -1,18 +1,23 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
 
-  <ItemGroup>
-    <ProjectReference Include="..\Sheetly.Core\Sheetly.Core.csproj" />
-  </ItemGroup>
+		<PackageId>Sheetly.Google</PackageId>
+		<Version>1.0.2</Version>
+		<Company>Dotnetolog</Company>
+		<Authors>Muqimjon Mamadaliyev</Authors>
 
-  <ItemGroup>
-    <PackageReference Include="Google.Apis.Sheets.v4" Version="1.72.0.3966" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.1" />
-  </ItemGroup>
+		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+	</PropertyGroup>
 
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\Sheetly.Core\Sheetly.Core.csproj" />
+	</ItemGroup>
 
+	<ItemGroup>
+		<PackageReference Include="Google.Apis.Sheets.v4" Version="1.72.0.3966" />
+		<PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.1" />
+	</ItemGroup>
 </Project>

@@ -1,5 +1,4 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
 	<PropertyGroup>
 		<OutputType>Exe</OutputType>
 		<TargetFramework>net10.0</TargetFramework>
@@ -7,39 +6,25 @@
 		<Nullable>enable</Nullable>
 
 		<PackAsTool>true</PackAsTool>
-		<ToolCommandName>sheetly</ToolCommandName>
-		<PackageId>Sheetly.Tools</PackageId>
+		<ToolCommandName>dotnet-sheetly</ToolCommandName>
+		<PackageId>dotnet-sheetly</PackageId>
 
-		<Version>1.0.6</Version>
-		<AssemblyVersion>1.0.6</AssemblyVersion>
-		<FileVersion>1.0.6</FileVersion>
-		<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+		<Version>1.0.3</Version>
+		<Company>Dotnetolog</Company>
+		<Authors>Muqimjon Mamadaliyev</Authors>
 
-		<PackageOutputPath>./nupkg</PackageOutputPath>
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-
-		<NoWarn>$(NoWarn);NU5111;NU5118</NoWarn>
 	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Sheetly.Core\Sheetly.Core.csproj" />
+		<ProjectReference Include="..\Sheetly.Google\Sheetly.Google.csproj" />
+	</ItemGroup>
 
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.1" />
 		<PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.1" />
 		<PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.1" />
 		<PackageReference Include="System.CommandLine" Version="2.0.1" />
-
-		<ProjectReference Include="..\Sheetly.Core\Sheetly.Core.csproj" />
-		<ProjectReference Include="..\Sheetly.Google\Sheetly.Google.csproj" />
 	</ItemGroup>
-
-	<ItemGroup>
-		<None Include="tools\*.ps1" Pack="true" PackagePath="tools" />
-	</ItemGroup>
-
-	<Target Name="ClearNupkg" BeforeTargets="Pack">
-		<ItemGroup>
-			<OldPackages Include="$(PackageOutputPath)\*.nupkg" />
-		</ItemGroup>
-		<Delete Files="@(OldPackages)" />
-	</Target>
-
 </Project>

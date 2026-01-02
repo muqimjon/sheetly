@@ -421,14 +421,28 @@ FodyWeavers.xsd
 
 # === Sheetly Specific ===
 
-# Google Cloud API maxfiy fayllari (Hech qachon GitHubga chiqmasin)
+# Google Cloud API secrets
 credentials.json
 client_secret.json
+client_secrets.json
 token.json/
 secrets.json
 
-# NuGet Tool paketlari (build vaqtida generatsiya bo'ladi)
+# Local secrets & settings
+**/appsettings.Development.json
+**/appsettings.Local.json
+**/appsettings.user.json
+
+# OS specific files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary and build files
+*.bak
+*.cache
+*.tmp
 nupkg/
 
-# Migratsiya fayllari (Bular GitHubga CHIQISHI KERAK)
+# Migrations (These MUST be included in Git)
 !**/Migrations/*.json

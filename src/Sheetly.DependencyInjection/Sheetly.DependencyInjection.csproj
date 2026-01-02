@@ -1,20 +1,24 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
 
-  <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.1" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.1" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.1" />
-  </ItemGroup>
+		<PackageId>Sheetly.DependencyInjection</PackageId>
+		<Version>1.0.2</Version>
+		<Company>Dotnetolog</Company>
+		<Authors>Muqimjon Mamadaliyev</Authors>
 
-  <ItemGroup>
-    <ProjectReference Include="..\Sheetly.Core\Sheetly.Core.csproj" />
-    <ProjectReference Include="..\Sheetly.Google\Sheetly.Google.csproj" />
-  </ItemGroup>
+		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+	</PropertyGroup>
 
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\Sheetly.Google\Sheetly.Google.csproj" />
+	</ItemGroup>
 
+	<ItemGroup>
+		<PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.1" />
+		<PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.1" />
+		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.1" />
+	</ItemGroup>
 </Project>

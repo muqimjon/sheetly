@@ -11,21 +11,18 @@ public static class GoogleSheetsFactory
 		connString.Validate();
 
 		var provider = new GoogleSheetProvider(connString.CredentialsPath, connString.SpreadsheetId);
-		var migrationService = new GoogleMigrationService(provider, connString.MigrationPath);
-
 		var context = new T();
-		await context.InitializeAsync(provider, migrationService);
+		await context.InitializeAsync(provider);
 
 		return context;
 	}
 
 	public static async Task<T> CreateContextAsync<T>(
 		string credentialsPath,
-		string spreadsheetId,
-		string migrationPath = ".sheetly/migration.json"
+		string spreadsheetId
 	) where T : SheetsContext, new()
 	{
-		var connectionString = $"Provider=GoogleSheets;CredentialsPath={credentialsPath};SpreadsheetId={spreadsheetId};MigrationPath={migrationPath}";
+		var connectionString = $"Provider=GoogleSheets;CredentialsPath={credentialsPath};SpreadsheetId={spreadsheetId}";
 		return await CreateContextAsync<T>(connectionString);
 	}
 }
