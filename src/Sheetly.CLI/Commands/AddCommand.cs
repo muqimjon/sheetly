@@ -72,11 +72,8 @@ public class AddCommand : Command
 
 			if (snapshotType != null)
 			{
-				var buildModelMethod = snapshotType.GetMethod("BuildModel", BindingFlags.Static | BindingFlags.Public);
-				if (buildModelMethod != null)
-				{
-					previousSnapshot = buildModelMethod.Invoke(null, null) as MigrationSnapshot;
-				}
+				// Instantiate snapshot (constructor populates Entities)
+				previousSnapshot = Activator.CreateInstance(snapshotType) as MigrationSnapshot;
 			}
 
 			// Get differences

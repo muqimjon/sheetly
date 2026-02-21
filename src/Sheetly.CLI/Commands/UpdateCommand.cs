@@ -103,12 +103,8 @@ if (snapshotType != null)
 {
 // Instantiate snapshot (constructor populates Entities)
 currentSnapshot = (Sheetly.Core.Migration.MigrationSnapshot?)Activator.CreateInstance(snapshotType);
-Console.WriteLine($"   🔍 Snapshot loaded: {currentSnapshot?.Entities.Count ?? 0} entities");
 }
-else
-{
-Console.WriteLine("   ⚠️ Snapshot type not found!");
-}
+
 
 // 5. Apply migrations
 foreach (var pm in pendingMigrations)
@@ -130,7 +126,6 @@ foreach (var op in operations.OfType<CreateTableOperation>())
 if (currentSnapshot.Entities.TryGetValue(op.Name, out var entity))
 {
 op.ClassName = entity.ClassName;
-Console.WriteLine($"      ✓ Table '{op.Name}' → ClassName: '{entity.ClassName}'");
 
 // Enrich columns with IsAutoIncrement from snapshot
 foreach (var col in op.Columns)
@@ -143,17 +138,36 @@ col.IsAutoIncrement = snapshotCol.IsAutoIncrement;
 if (snapshotCol.IsPrimaryKey)
 {
 col.IsUnique = true;
-                                Console.WriteLine($"         • Column '{col.Name}': IsUnique=true (PK)");
 }
 if (snapshotCol.IsAutoIncrement)
 {
-Console.WriteLine($"         • Column '{col.Name}': IsAutoIncrement=true");
+col.IsAutoIncrement = true;
 }
 }
 }
 }
 }
 }
+
+	// Enrich AddColumn operations
+	foreach (var op in operations.OfType<AddColumnOperation>())
+	{
+		if (currentSnapshot.Entities.TryGetValue(op.Table, out var entity))
+		{
+			var snapshotCol = entity.Columns.FirstOrDefault(c => c.Name == op.Name);
+			if (snapshotCol != null)
+			{
+				op.IsAutoIncrement = snapshotCol.IsAutoIncrement;
+				// Primary keys are automatically unique
+				if (snapshotCol.IsPrimaryKey)
+				{
+					op.IsUnique = true;
+				}
+				// Store ClassName for schema table
+				op.ClassName = entity.ClassName;
+			}
+		}
+	}
 
 await migrationService.ApplyMigrationAsync(operations, migrationId);
 

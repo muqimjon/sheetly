@@ -15,17 +15,13 @@ Sheetly brings the **Entity Framework Core developer experience** to Google Shee
 // Define models with familiar attributes
 public class Product 
 {
-    [Key]
     public int Id { get; set; }
     
-    [Required]
     [MaxLength(100)]
-    public string Name { get; set; }
+    public string Name { get; set; } = string.Empty;
     
-    [Range(0, 10000)]
     public decimal Price { get; set; }
     
-    [ForeignKey("Category")]
     public int CategoryId { get; set; }
     public Category Category { get; set; }
 }
@@ -39,6 +35,22 @@ public class InventoryContext : SheetsContext
     protected override void OnConfiguring(SheetsOptions options)
     {
         options.UseGoogleSheets("credentials.json", "your-spreadsheet-id");
+    }
+    
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<Product>(entity =>
+        {
+            entity.Property(p => p.Id).IsPrimaryKey().IsAutoIncrement();
+            entity.Property(p => p.Name).HasMaxLength(100);
+            entity.Property(p => p.Price).IsRequired();
+            entity.Property(p => p.CategoryId).IsRequired().IsForeignKey("Categories");
+        });
+        
+        modelBuilder.Entity<Category>(entity =>
+        {
+            entity.Property(c => c.Id).IsPrimaryKey().IsAutoIncrement();
+        });
     }
 }
 
@@ -78,19 +90,23 @@ dotnet sheetly database update
 ```
 
 ### ✅ **Full Constraint Support**
-- Primary Keys & Foreign Keys
-- Required/Nullable fields
-- Max/Min Length validation
-- Range constraints
-- Unique constraints
-- Check constraints
-- Precision & Scale for decimals
+- Primary Keys (IsPrimaryKey, IsAutoIncrement)
+- Foreign Keys (IsForeignKey)
+- Required/Nullable fields (IsRequired, IsNullable)
+- Max/Min Length validation (HasMaxLength, HasMinLength)
+- Unique constraints (IsUnique)
+- Default values (HasDefaultValue)
+- Column mapping (HasColumnName)
 
-### 🛡️ **Local Validation**
-- Validates **before** API calls
-- Minimizes Google Sheets API usage
-- Prevents rate limit issues
-- Fast feedback on errors
+### 🛡️ **Schema Tracking**
+- **__SheetlySchema__** sheet stores all metadata
+  - ClassName, TableName, PropertyName
+  - DataType, IsNullable, IsRequired
+  - IsPrimaryKey, IsForeignKey, IsUnique
+  - IsAutoIncrement, CurrentIdValue
+  - MaxLength, DefaultValue, etc.
+- **__SheetlyMigrationsHistory__** tracks applied migrations
+- Local validation before Google Sheets API calls
 
 ### 🧰 **Professional CLI**
 ```bash
@@ -133,22 +149,13 @@ dotnet tool install -g dotnet-sheetly
 ### 2. **Create Your Models**
 
 ```csharp
-using System.ComponentModel.DataAnnotations;
-
 public class Product 
 {
-    [Key]
     public int Id { get; set; }
-    
-    [Required]
-    [MaxLength(200)]
-    public string Name { get; set; }
-    
-    [Column("Market_Price")]
-    [Range(0, 999999)]
+    public string Title { get; set; } = string.Empty;
     public decimal Price { get; set; }
-    
-    public DateTime CreatedAt { get; set; }
+    public string? Description { get; set; }
+    public int Stock { get; set; }
     
     // Navigation properties
     public int CategoryId { get; set; }
@@ -157,13 +164,9 @@ public class Product
 
 public class Category
 {
-    [Key]
     public long Id { get; set; }
-    
-    [Required]
-    public string Name { get; set; }
-    
-    public List<Product> Products { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public List<Product> Products { get; set; } = [];
 }
 ```
 
@@ -188,12 +191,20 @@ public class MyAppContext : SheetsContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // Fluent API configuration
-        modelBuilder.Entity<Product>()
-            .HasCheckConstraint("CK_Product_Price", "Price >= 0");
+        modelBuilder.Entity<Product>(entity =>
+        {
+            entity.Property(p => p.Id).IsPrimaryKey().IsAutoIncrement();
+            entity.Property(p => p.Title).HasMaxLength(200);
+            entity.Property(p => p.Price).IsRequired();
+            entity.Property(p => p.CategoryId).IsRequired().IsForeignKey("Categories");
+        });
             
-        modelBuilder.Entity<Category>()
-            .ToTable("Categories")
-            .HasKey(c => c.Id);
+        modelBuilder.Entity<Category>(entity =>
+        {
+            entity.ToTable("Categories");
+            entity.Property(c => c.Id).IsPrimaryKey().IsAutoIncrement();
+            entity.Property(c => c.Name).HasMaxLength(100);
+        });
     }
 }
 ```
@@ -212,16 +223,20 @@ public partial class InitialCreate : Migration
 {
     public override void Up(MigrationBuilder builder)
     {
+        // ClassName: Category
         builder.CreateTable("Categories", table => table
-            .Column<long>("Id", c => c.IsPrimaryKey())
-            .Column<string>("Name", c => c.IsRequired())
+            .Column<long>("Id", c => c.IsPrimaryKey().IsUnique())
+            .Column<string>("Name")
         );
 
+        // ClassName: Product
         builder.CreateTable("Products", table => table
-            .Column<int>("Id", c => c.IsPrimaryKey())
-            .Column<string>("Name", c => c.IsRequired().HasMaxLength(200))
-            .Column<decimal>("Price", c => c.HasPrecision(10, 2))
-            .Column<int>("CategoryId", c => c.IsForeignKey("Categories"))
+            .Column<int>("Id", c => c.IsPrimaryKey().IsUnique())
+            .Column<string>("Title")
+            .Column<decimal>("Price", c => c.IsRequired())
+            .Column<string>("Description")
+            .Column<int>("Stock", c => c.IsRequired())
+            .Column<int>("CategoryId", c => c.IsRequired().IsForeignKey("Categories"))
         );
     }
 
@@ -252,8 +267,9 @@ await context.SaveChangesAsync();
 
 var product = new Product 
 { 
-    Name = "Laptop", 
+    Title = "Laptop", 
     Price = 1200,
+    Stock = 10,
     CategoryId = category.Id
 };
 context.Products.Add(product);
@@ -266,7 +282,7 @@ var products = await context.Products
 
 foreach (var p in products)
 {
-    Console.WriteLine($"{p.Name} - ${p.Price} ({p.Category.Name})");
+    Console.WriteLine($"{p.Title} - ${p.Price} (Stock: {p.Stock}) - {p.Category.Name}");
 }
 
 // Update
@@ -291,18 +307,19 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
     modelBuilder.Entity<Product>(entity =>
     {
         entity.ToTable("Products");
-        entity.HasKey(p => p.Id);
+        entity.Property(p => p.Id).IsPrimaryKey().IsAutoIncrement();
         
-        entity.Property(p => p.Name)
-            .IsRequired()
+        entity.Property(p => p.Title)
             .HasMaxLength(200)
-            .HasColumnName("Product_Name");
+            .HasColumnName("Product_Title");
             
         entity.Property(p => p.Price)
-            .HasPrecision(10, 2)
+            .IsRequired()
             .HasColumnName("Market_Price");
             
-        entity.HasCheckConstraint("CK_Price", "Price >= 0");
+        entity.Property(p => p.CategoryId)
+            .IsRequired()
+            .IsForeignKey("Categories");
     });
 }
 ```
@@ -318,17 +335,64 @@ var products = await context.Products
 
 ### **Validation Before Save**
 
+Sheetly validates constraints locally before hitting Google Sheets API:
+
 ```csharp
 try 
 {
-    context.Products.Add(new Product { Name = "", Price = -100 });
-    await context.SaveChangesAsync();
+    var product = new Product 
+    { 
+        Title = "Test",
+        Price = 100,
+        Stock = -5  // Invalid: negative stock
+    };
+    context.Products.Add(product);
+    await context.SaveChangesAsync();  // Will validate before API call
 }
-catch (ValidationException ex)
+catch (Exception ex)
 {
-    foreach (var error in ex.Result.Errors)
+    Console.WriteLine($"Validation error: {ex.Message}");
+}
+```
+
+### **Incremental Migrations**
+
+```csharp
+// Add a new property to Product model
+public class Product 
+{
+    public int Id { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public decimal Price { get; set; }
+    public string? Description { get; set; }
+    public int Stock { get; set; }  // NEW!
+    public int CategoryId { get; set; }
+    public Category Category { get; set; }
+}
+```
+
+```bash
+# Generate migration for the change
+dotnet sheetly migrations add AddStockToProduct
+
+# This creates:
+# - Migration file with AddColumn operation
+# - Updated snapshot with new schema
+```
+
+Generated migration:
+```csharp
+[Migration("20260221213405_AddStockToProduct")]
+public partial class AddStockToProduct : Migration
+{
+    public override void Up(MigrationBuilder builder)
     {
-        Console.WriteLine($"{error.PropertyName}: {error.ErrorMessage}");
+        builder.AddColumn<int>("Products", "Stock", c => c.IsRequired());
+    }
+
+    public override void Down(MigrationBuilder builder)
+    {
+        builder.DropColumn("Products", "Stock");
     }
 }
 ```
@@ -345,6 +409,55 @@ Sheetly/
 ├── Sheetly.CLI               # Command-line tool
 └── Sheetly.DependencyInjection  # ASP.NET Core integration
 ```
+
+---
+
+## 📊 How It Works
+
+Sheetly creates **hidden sheets** in your Google Spreadsheet:
+
+1. **Your Data Sheets** (Categories, Products, etc.)
+   - Standard sheets with headers and data rows
+   - Each entity gets its own sheet
+
+2. **__SheetlySchema__** (hidden)
+   - Stores complete metadata for all properties
+   - Tracks ClassName, DataType, constraints, relationships
+   - 30 columns of metadata per property
+
+3. **__SheetlyMigrationsHistory__** (hidden)
+   - Migration tracking (MigrationId, AppliedAt, ProductVersion)
+   - Ensures database/code synchronization
+
+### Workflow:
+```bash
+1. Define models → 2. Create migrations → 3. Apply to Sheets
+   ↓                    ↓                      ↓
+  C# classes       .cs migration files    Google Sheets
+                   + snapshot files        + schema tracking
+```
+
+---
+
+## 🎯 Current Status (v1.0.9)
+
+### ✅ Completed Features:
+- ✅ SheetsContext & SheetsSet<T>
+- ✅ CRUD operations (Add, Update, Remove, SaveChangesAsync)
+- ✅ ToListAsync, Include, AsNoTracking
+- ✅ Code-first migrations (C# files, not JSON)
+- ✅ Incremental migrations (AddColumn, DropColumn)
+- ✅ Full schema metadata tracking
+- ✅ Primary Key auto-increment
+- ✅ Foreign Key relationships
+- ✅ CLI tool (migrations add, database update/drop)
+- ✅ Entity tracking with Update/Remove support
+
+### 🚧 In Development:
+- 🔄 Validation framework
+- 🔄 Complex queries (Where, OrderBy, Skip, Take)
+- 🔄 Scaffold-DbContext (reverse engineering)
+- 🔄 ASP.NET Core DI integration
 
 ---
 

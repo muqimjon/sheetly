@@ -47,6 +47,8 @@ public class AppDbContext : SheetsContext
 			e.Property(p => p.Price)
 				.IsRequired()
 				.HasRange(0, 1000000); // Price must be between 0 and 1,000,000
+			e.Property(p => p.Description)
+				.HasMaxLength(500); // Optional description, max 500 chars
 		});
 	}
 }

@@ -30,9 +30,20 @@ public class ModelSnapshotGenerator
 		sb.AppendLine($"namespace {targetNamespace};");
 		sb.AppendLine();
 
-		// Class definition
-		sb.AppendLine($"public partial class {contextName}ModelSnapshot");
+		// Class definition with inheritance and constructor
+		sb.AppendLine($"public partial class {contextName}ModelSnapshot : MigrationSnapshot");
 		sb.AppendLine("{");
+		
+		// Constructor
+		sb.AppendLine($"{Indent}public {contextName}ModelSnapshot()");
+		sb.AppendLine($"{Indent}{{");
+		sb.AppendLine($"{Indent}{Indent}var snapshot = BuildModel();");
+		sb.AppendLine($"{Indent}{Indent}this.Entities = snapshot.Entities;");
+		sb.AppendLine($"{Indent}{Indent}this.ModelHash = snapshot.ModelHash;");
+		sb.AppendLine($"{Indent}{Indent}this.Version = snapshot.Version;");
+		sb.AppendLine($"{Indent}{Indent}this.LastUpdated = snapshot.LastUpdated;");
+		sb.AppendLine($"{Indent}}}");
+		sb.AppendLine();
 
 		// BuildModel method
 		sb.AppendLine($"{Indent}public static MigrationSnapshot BuildModel()");

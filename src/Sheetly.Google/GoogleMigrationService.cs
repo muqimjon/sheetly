@@ -178,7 +178,7 @@ public class GoogleMigrationService(ISheetsProvider provider)
 		}
 
 		// Update Schema
-		await AddColumnToSchemaAsync(op);
+		await AddColumnToSchemaAsync(op, op.ClassName);
 	}
 
 	private async Task AddColumnToSchemaAsync(AddColumnOperation col, string? className = null)

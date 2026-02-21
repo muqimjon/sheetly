@@ -70,4 +70,5 @@ public class AddColumnOperation : MigrationOperation
 
 	// Additional metadata
 	public string? Comment { get; set; }
+	public string? ClassName { get; set; }
 }
