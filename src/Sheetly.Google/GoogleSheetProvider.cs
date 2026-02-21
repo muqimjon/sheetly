@@ -4,7 +4,6 @@ using Google.Apis.Sheets.v4;
 using Google.Apis.Sheets.v4.Data;
 using Microsoft.Extensions.Configuration;
 using Sheetly.Core.Abstractions;
-using Sheetly.Core.Migration;
 using System.Text.Json;
 
 namespace Sheetly.Google;
@@ -40,61 +39,6 @@ public class GoogleSheetProvider : ISheetsProvider
 		await _service.Spreadsheets.Get(_spreadsheetId).ExecuteAsync();
 	}
 
-	public async Task ApplyMigrationAsync(MigrationSnapshot snapshot)
-	{
-		foreach (var entity in snapshot.Entities.Values)
-		{
-			var exists = await SheetExistsAsync(entity.TableName);
-			if (!exists)
-			{
-				var headers = entity.Columns.Select(c => c.Name).ToList();
-				await CreateSheetAsync(entity.TableName, headers);
-			}
-			else
-			{
-				// Ustunlarni tekshiramiz va yangilarini qo'shamiz
-				var rows = await GetAllRowsAsync(entity.TableName);
-				var currentHeaders = rows.Count > 0 
-					? rows[0].Select(h => h?.ToString() ?? string.Empty).ToList() 
-					: new List<string>();
-
-				var newColumns = entity.Columns
-					.Where(c => !currentHeaders.Any(h => h.Equals(c.Name, StringComparison.OrdinalIgnoreCase)))
-					.ToList();
-
-				if (newColumns.Any())
-				{
-					int lastColIndex = currentHeaders.Count;
-					foreach (var col in newColumns)
-					{
-						string range = GetColumnLetter(++lastColIndex) + "1";
-						await UpdateValueAsync(entity.TableName, range, col.Name);
-					}
-				}
-			}
-		}
-
-		string metaSheet = "__SheetlyHistory__";
-		if (!await SheetExistsAsync(metaSheet))
-		{
-			await CreateSheetAsync(metaSheet, ["MigrationId", "AppliedAt", "Snapshot", "Hash"]);
-			await HideSheetAsync(metaSheet);
-		}
-	}
-
-	private string GetColumnLetter(int index)
-	{
-		int temp;
-		string letter = string.Empty;
-		while (index > 0)
-		{
-			temp = (index - 1) % 26;
-			letter = (char)(65 + temp) + letter;
-			index = (index - temp) / 26;
-		}
-		return letter;
-	}
-
 	public async Task DropDatabaseAsync()
 	{
 		var ss = await _service.Spreadsheets.Get(_spreadsheetId).ExecuteAsync();
@@ -107,7 +51,7 @@ public class GoogleSheetProvider : ISheetsProvider
 		}
 	}
 
-    private SheetsService CreateService(GoogleCredential credential)
+	private SheetsService CreateService(GoogleCredential credential)
 	{
 		return new SheetsService(new BaseClientService.Initializer
 		{
@@ -173,7 +117,11 @@ public class GoogleSheetProvider : ISheetsProvider
 				Properties = new SheetProperties
 				{
 					Title = sheetName,
-					GridProperties = new GridProperties { FrozenRowCount = 1 }
+					GridProperties = new GridProperties
+					{
+						FrozenRowCount = 1,
+						ColumnCount = headers.Count  // Explicitly set column count
+					}
 				}
 			}
 		};
@@ -188,25 +136,24 @@ public class GoogleSheetProvider : ISheetsProvider
 
 		var headerRows = new List<RowData>
 	{
-		new RowData
-		{
+		new() {
 			Values = [.. headers.Select(h => new CellData
 			{
 				UserEnteredValue = new ExtendedValue { StringValue = h },
 				UserEnteredFormat = new CellFormat
 				{
 					BackgroundColor = new Color { Red = 0.1f, Green = 0.1f, Blue = 0.1f },
-                    HorizontalAlignment = "CENTER",
+					HorizontalAlignment = "CENTER",
 					VerticalAlignment = "MIDDLE",
 					TextFormat = new TextFormat
 					{
 						ForegroundColor = new Color { Red = 1f, Green = 1f, Blue = 1f },
-                        Bold = true,
+						Bold = true,
 						FontSize = 12
 					}
 				}
-            })]
-        }
+			})]
+		}
 	};
 
 		var updateCellsRequest = new Request

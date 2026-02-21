@@ -1,6 +1,5 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Sheetly.Core;
-using Sheetly.Core.Abstractions;
 using Sheetly.Core.Configuration;
 
 namespace Sheetly.DependencyInjection.Extensions;
@@ -17,7 +16,7 @@ public static class ServiceCollectionExtensions
 			configure?.Invoke(options);
 
 			var context = new TContext();
-			
+
 			if (options.Provider != null)
 			{
 				context.InitializeAsync(options.Provider).GetAwaiter().GetResult();

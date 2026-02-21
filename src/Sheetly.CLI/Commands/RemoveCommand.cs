@@ -1,5 +1,5 @@
-﻿using System.CommandLine;
-using Sheetly.CLI.Helpers;
+﻿using Sheetly.CLI.Helpers;
+using System.CommandLine;
 
 namespace Sheetly.CLI.Commands;
 
@@ -23,19 +23,29 @@ public class RemoveCommand : Command
 			string contextProjectDir = CliHelper.FindProjectRootFromDll(Path.GetFullPath(dllPath));
 			string migrationsDir = Path.Combine(contextProjectDir, "Migrations");
 
-			if (!Directory.Exists(migrationsDir)) return;
+			if (!Directory.Exists(migrationsDir))
+			{
+				Console.WriteLine("⚠️ Migrations directory not found.");
+				return;
+			}
 
-			var files = Directory.GetFiles(migrationsDir, "*.json")
-				.Where(f => !f.EndsWith("sheetly_snapshot.json"))
+			// Find C# migration files (not ModelSnapshot)
+			var files = Directory.GetFiles(migrationsDir, "*.cs")
+				.Where(f => !f.Contains("ModelSnapshot"))
 				.OrderByDescending(f => f)
 				.ToList();
 
 			if (files.Count > 0)
 			{
+				string fileName = Path.GetFileName(files[0]);
 				File.Delete(files[0]);
-				Console.WriteLine($"✅ O'chirildi: {Path.GetFileName(files[0])}");
+				Console.WriteLine($"✅ Migration removed: '{fileName}'");
+			}
+			else
+			{
+				Console.WriteLine("⚠️ No migrations to remove.");
 			}
 		}
-		catch (Exception ex) { Console.WriteLine($"❌ Xato: {ex.Message}"); }
+		catch (Exception ex) { Console.WriteLine($"❌ Error: {ex.Message}"); }
 	}
 }

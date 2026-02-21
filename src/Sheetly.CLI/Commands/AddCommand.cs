@@ -1,9 +1,10 @@
-﻿using System.CommandLine;
-using System.Reflection;
-using System.Text.Json;
+﻿using Sheetly.CLI.Helpers;
 using Sheetly.Core;
 using Sheetly.Core.Migration;
-using Sheetly.CLI.Helpers;
+using Sheetly.Core.Migrations;
+using Sheetly.Core.Migrations.Design;
+using System.CommandLine;
+using System.Reflection;
 
 namespace Sheetly.CLI.Commands;
 
@@ -35,7 +36,7 @@ public class AddCommand : Command
 	{
 		if (string.IsNullOrWhiteSpace(name))
 		{
-			Console.Write("Migratsiya nomini kiriting: ");
+			Console.Write("Enter migration name: ");
 			name = Console.ReadLine();
 			if (string.IsNullOrWhiteSpace(name)) return;
 		}
@@ -47,7 +48,7 @@ public class AddCommand : Command
 		{
 			var assembly = Assembly.LoadFrom(Path.GetFullPath(dllPath));
 			var contextType = assembly.GetExportedTypes().FirstOrDefault(t => CliHelper.IsSubclassOfSheetsContext(t))
-				?? throw new Exception("SheetsContext topilmadi.");
+				?? throw new Exception("SheetsContext not found.");
 
 			var context = Activator.CreateInstance(contextType)!;
 			string contextProjectDir = CliHelper.FindProjectRootFromDll(contextType.Assembly.Location);
@@ -57,19 +58,69 @@ public class AddCommand : Command
 			var onModelCreatingMethod = contextType.GetMethod("OnModelCreating", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
 			onModelCreatingMethod?.Invoke(context, [modelBuilder]);
 
-			var snapshot = MigrationBuilder.BuildFromContext(contextType, modelBuilder);
+			// Build current snapshot
+			var currentSnapshot = SnapshotBuilder.BuildFromContext(contextType);
 
+			// Load previous snapshot from C# ModelSnapshot class (EF Core style)
 			string finalPath = Path.Combine(contextProjectDir, outputDir);
 			Directory.CreateDirectory(finalPath);
 
-			var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
-			string timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
+			MigrationSnapshot? previousSnapshot = null;
+			string snapshotClassName = $"{contextType.Name.Replace("Context", "")}ModelSnapshot";
+			var snapshotType = assembly.GetExportedTypes()
+				.FirstOrDefault(t => t.Name == snapshotClassName && t.Namespace == $"{contextType.Namespace}.Migrations");
 
-			await File.WriteAllTextAsync(Path.Combine(finalPath, $"{timestamp}_{name}.json"), JsonSerializer.Serialize(snapshot, jsonOptions), ct);
-			await File.WriteAllTextAsync(Path.Combine(finalPath, "sheetly_snapshot.json"), JsonSerializer.Serialize(snapshot, jsonOptions), ct);
+			if (snapshotType != null)
+			{
+				var buildModelMethod = snapshotType.GetMethod("BuildModel", BindingFlags.Static | BindingFlags.Public);
+				if (buildModelMethod != null)
+				{
+					previousSnapshot = buildModelMethod.Invoke(null, null) as MigrationSnapshot;
+				}
+			}
 
-			Console.WriteLine($"✅ Migratsiya yaratildi: '{finalPath}'");
+			// Get differences
+			var modelDiffer = new ModelDiffer();
+			var operations = modelDiffer.GetDifferences(previousSnapshot, currentSnapshot);
+
+			if (operations.Count == 0)
+			{
+				Console.WriteLine("⚠️ No changes detected in the model.");
+				return;
+			}
+
+			// Generate C# migration file
+			string timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+			string migrationId = $"{timestamp}_{name}";
+			string targetNamespace = $"{contextType.Namespace}.Migrations";
+
+			var generator = new CSharpMigrationGenerator();
+			string migrationCode = generator.GenerateMigration(name, migrationId, targetNamespace, operations);
+
+			// Write C# migration file
+			string csharpFileName = $"{migrationId}.cs";
+			await File.WriteAllTextAsync(Path.Combine(finalPath, csharpFileName), migrationCode, ct);
+
+			// Generate ModelSnapshot.cs (EF Core style - C# only, no JSON!)
+			var snapshotGenerator = new ModelSnapshotGenerator();
+			string snapshotCode = snapshotGenerator.GenerateModelSnapshot(
+				currentSnapshot,
+				targetNamespace,
+				contextType.Name.Replace("Context", ""));
+
+			string snapshotFileName = $"{contextType.Name.Replace("Context", "")}ModelSnapshot.cs";
+			string snapshotFilePath = Path.Combine(finalPath, snapshotFileName);
+			await File.WriteAllTextAsync(snapshotFilePath, snapshotCode, ct);
+
+			Console.WriteLine($"✅ Migration created: '{csharpFileName}'");
+			Console.WriteLine($"✅ Model snapshot updated: '{snapshotFileName}'");
+			Console.WriteLine($"   Operations: {operations.Count}");
+
+			foreach (var op in operations)
+			{
+				Console.WriteLine($"   - {op.OperationType}");
+			}
 		}
-		catch (Exception ex) { Console.WriteLine($"❌ Xato: {ex.Message}"); }
+		catch (Exception ex) { Console.WriteLine($"❌ Error: {ex.Message}"); }
 	}
 }

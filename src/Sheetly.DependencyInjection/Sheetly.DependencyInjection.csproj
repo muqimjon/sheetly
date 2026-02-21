@@ -5,9 +5,12 @@
 		<Nullable>enable</Nullable>
 
 		<PackageId>Sheetly.DependencyInjection</PackageId>
-		<Version>1.0.2</Version>
+		<Version>1.0.0</Version>
 		<Company>Dotnetolog</Company>
 		<Authors>Muqimjon Mamadaliyev</Authors>
+		<Description>Dependency injection extensions for Sheetly ORM. Easily register Sheetly in ASP.NET Core applications.</Description>
+		<PackageTags>dependency-injection;sheetly;aspnetcore;di</PackageTags>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 	</PropertyGroup>

@@ -21,8 +21,8 @@ public class EntityTypeBuilder<T> : EntityMetadata where T : class
 		var name = GetPropertyName(propertyExpression);
 		if (!Properties.TryGetValue(name, out PropertyBuilder? value))
 		{
-            value = new PropertyBuilder(name);
-            Properties[name] = value;
+			value = new PropertyBuilder(name);
+			Properties[name] = value;
 		}
 		return value;
 	}

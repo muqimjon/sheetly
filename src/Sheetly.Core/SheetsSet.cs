@@ -1,9 +1,9 @@
-﻿using System.Collections;
-using System.Reflection;
-using Sheetly.Core.Abstractions;
+﻿using Sheetly.Core.Abstractions;
+using Sheetly.Core.Infrastructure;
 using Sheetly.Core.Mapping;
 using Sheetly.Core.Migration;
-using Sheetly.Core.Infrastructure;
+using System.Collections;
+using System.Reflection;
 
 namespace Sheetly.Core;
 
@@ -15,7 +15,6 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 	private bool _asNoTracking = false;
 
 	private const string SchemaTable = "__SheetlySchema__";
-	private const string HistoryTable = "__SheetlyMigrationsHistory__";
 
 	public SheetsSet<T> AsNoTracking()
 	{
@@ -34,13 +33,31 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		_trackedEntities[entity] = EntityState.Added;
 	}
 
+	/// <summary>
+	/// Gets all pending entities that will be saved.
+	/// Used for validation before SaveChanges.
+	/// </summary>
+	internal IEnumerable<object> GetPendingEntities()
+	{
+		return _trackedEntities
+			.Where(x => x.Value == EntityState.Added || x.Value == EntityState.Modified)
+			.Select(x => (object)x.Key);
+	}
+
 	public void Update(T entity)
 	{
-		if (!_trackedEntities.ContainsKey(entity)) 
+		if (!_trackedEntities.ContainsKey(entity))
 			_trackedEntities[entity] = EntityState.Modified;
 	}
 
 	public void Remove(T entity) => _trackedEntities[entity] = EntityState.Deleted;
+
+	internal IEnumerable<object> GetDeletedEntities()
+	{
+		return _trackedEntities
+			.Where(x => x.Value == EntityState.Deleted)
+			.Select(x => (object)x.Key);
+	}
 
 	public async Task<List<T>> ToListAsync()
 	{
@@ -106,8 +123,8 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 					relatedEntities.Add(relEntity);
 				}
 
-                value = relatedEntities;
-                loadedTables[relatedTableName] = value;
+				value = relatedEntities;
+				loadedTables[relatedTableName] = value;
 			}
 
 			MapRelations(entities, value, prop, isCollection, relatedSchema, targetType);
@@ -126,7 +143,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		{
 			if (isCollection)
 			{
-				var fkColumn = relatedSchema.Columns.FirstOrDefault(c => c.IsForeignKey && c.RelatedTable == schema.TableName);
+				var fkColumn = relatedSchema.Columns.FirstOrDefault(c => c.IsForeignKey && c.ForeignKeyTable == schema.TableName);
 				var fkPropOnRelated = fkColumn != null ? targetType.GetProperty(fkColumn.PropertyName) : null;
 
 				if (fkPropOnRelated != null && pkProp != null)
@@ -142,7 +159,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 			}
 			else
 			{
-				var fkColumn = schema.Columns.FirstOrDefault(c => c.IsForeignKey && c.RelatedTable == relatedSchema.TableName);
+				var fkColumn = schema.Columns.FirstOrDefault(c => c.IsForeignKey && c.ForeignKeyTable == relatedSchema.TableName);
 				var fkProp = fkColumn != null ? typeof(T).GetProperty(fkColumn.PropertyName) : null;
 
 				if (fkProp != null && relPkProp != null)
@@ -223,18 +240,58 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 			throw new Exception("SheetlyError: __SheetlySchema__ jadvali topilmadi.");
 
 		var rows = await provider.GetAllRowsAsync(SchemaTable);
-		int currentId = 1;
+		int schemaIdValue = 0; // Value from __SheetlySchema__
+		var pkPropertyName = schema.Columns.First(c => c.IsPrimaryKey).PropertyName;
+
+		// Read CurrentIdValue from __SheetlySchema__ (Column 28)
+		int schemaRowIndex = -1;
 		for (int i = 1; i < rows.Count; i++)
 		{
-			if (rows[i].Count > 0 && rows[i][0]?.ToString() == tableName && rows[i][1]?.ToString() == schema.Columns.First(c => c.IsPrimaryKey).PropertyName)
+			if (rows[i].Count > 1 &&
+				rows[i][0]?.ToString() == tableName &&
+				rows[i][1]?.ToString() == pkPropertyName)
 			{
-                _ = int.TryParse(rows[i][6]?.ToString(), out currentId);
-				int newId = currentId + count;
-				await provider.UpdateValueAsync(SchemaTable, $"G{i + 1}", newId);
+				schemaRowIndex = i;
+				_ = int.TryParse(rows[i][28]?.ToString(), out schemaIdValue);
 				break;
 			}
 		}
-		return currentId;
+
+		// Also check actual data sheet for MAX(ID) - handles restart scenarios
+		int maxIdInSheet = 0;
+		if (await provider.SheetExistsAsync(tableName))
+		{
+			var dataRows = await provider.GetAllRowsAsync(tableName);
+			if (dataRows.Count > 1) // Has data beyond header
+			{
+				// Find ID column index (first column is typically ID)
+				for (int i = 1; i < dataRows.Count; i++)
+				{
+					if (dataRows[i].Count > 0 && int.TryParse(dataRows[i][0]?.ToString(), out int id))
+					{
+						if (id > maxIdInSheet)
+							maxIdInSheet = id;
+					}
+				}
+			}
+		}
+
+		// Use the maximum of schema value and actual data
+		int currentId = Math.Max(schemaIdValue, maxIdInSheet);
+
+		// Next available ID (increment from max)
+		int nextId = currentId + 1;
+
+		// Calculate what schema should store after this operation
+		int newSchemaValue = nextId + count - 1;
+
+		// Update schema with new value
+		if (schemaRowIndex >= 0)
+		{
+			await provider.UpdateValueAsync(SchemaTable, $"AC{schemaRowIndex + 1}", newSchemaValue);
+		}
+
+		return nextId;
 	}
 }
 

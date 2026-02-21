@@ -67,7 +67,7 @@ public static class CliHelper
 		foreach (var col in entity.Columns)
 		{
 			if (col.IsPrimaryKey) sb.AppendLine("    [Key]");
-			if (col.IsForeignKey) sb.AppendLine($"    [ForeignKey(\"{col.RelatedTable}\")]");
+			if (col.IsForeignKey) sb.AppendLine($"    [ForeignKey(\"{col.ForeignKeyTable}\")]");
 			var type = col.DataType;
 			if (col.IsNullable && type != "String" && !type.EndsWith("?")) type += "?";
 			sb.AppendLine($"    public {type} {col.PropertyName} {{ get; set; }}");

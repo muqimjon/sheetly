@@ -1,10 +1,10 @@
-﻿using System.CommandLine;
-using System.Reflection;
-using System.Text.Json;
+﻿using Sheetly.CLI.Helpers;
 using Sheetly.Core;
-using Sheetly.Core.Migration;
+using Sheetly.Core.Migrations;
+using Sheetly.Core.Migrations.Operations;
 using Sheetly.Google;
-using Sheetly.CLI.Helpers;
+using System.CommandLine;
+using System.Reflection;
 
 namespace Sheetly.CLI.Commands;
 
@@ -35,11 +35,12 @@ public class UpdateCommand : Command
 		{
 			var assembly = Assembly.LoadFrom(Path.GetFullPath(dllPath));
 			var contextType = assembly.GetExportedTypes().FirstOrDefault(t => CliHelper.IsSubclassOfSheetsContext(t))
-				?? throw new Exception("SheetsContext topilmadi.");
+				?? throw new Exception("SheetsContext not found.");
 
 			string contextProjectDir = CliHelper.FindProjectRootFromDll(contextType.Assembly.Location);
-			string? connStr = CliHelper.GetConnectionString(contextProjectDir) ?? throw new Exception("ConnectionString topilmadi.");
+			string? connStr = CliHelper.GetConnectionString(contextProjectDir) ?? throw new Exception("ConnectionString not found.");
 
+			// Initialize Google Sheets Provider
 			var factoryType = assembly.GetExportedTypes().FirstOrDefault(t => t.Name == "GoogleSheetsFactory")
 							  ?? typeof(GoogleSheetsFactory);
 
@@ -47,38 +48,111 @@ public class UpdateCommand : Command
 				.FirstOrDefault(m => m.Name == "CreateContextAsync" && m.IsGenericMethod && m.GetParameters().Length == 1)
 				?.MakeGenericMethod(contextType);
 
-			if (method == null) throw new Exception("CreateContextAsync topilmadi.");
+			if (method == null) throw new Exception("CreateContextAsync not found.");
 
-			Console.WriteLine("⏳ Google Sheets-ga ulanmoqda...");
+			Console.WriteLine("⏳ Connecting to Google Sheets...");
 			var task = (Task)method.Invoke(null, [connStr])!;
 			await task;
 
 			var context = (SheetsContext)((dynamic)task).Result;
+			if (context.provider == null) throw new Exception("Provider is required.");
 
-			if (context.provider == null) throw new Exception("Provider is required in connection string.");
+			// Initialize Migration Service
+			var migrationService = new GoogleMigrationService(context.provider);
 
-			string snapshotPath = Path.Combine(contextProjectDir, "Migrations", "sheetly_snapshot.json");
-			if (!File.Exists(snapshotPath)) throw new Exception("Snapshot topilmadi. Avval 'migrations add' buyrug'ini ishlating.");
+			// 1. Get applied migrations
+			var appliedMigrations = await migrationService.GetAppliedMigrationsAsync();
 
-			var snapshotJson = await File.ReadAllTextAsync(snapshotPath, ct);
-			var snapshot = JsonSerializer.Deserialize<MigrationSnapshot>(snapshotJson)!;
+			// 2. Find local migrations
+			var migrationTypes = assembly.GetTypes()
+				.Where(t => t.IsSubclassOf(typeof(Migration)) && !t.IsAbstract)
+				.Select(t => new
+				{
+					Type = t,
+					Attribute = t.GetCustomAttribute<MigrationAttribute>()
+				})
+				.Where(x => x.Attribute != null)
+				.OrderBy(x => x.Attribute!.Id)
+				.ToList();
 
-			Console.WriteLine("🔄 Migratsiyalar Sheets-ga qo'llanilmoqda...");
-			await context.Database.ApplyMigrationAsync(snapshot);
+			if (migrationTypes.Count == 0)
+			{
+				Console.WriteLine("⚠️ No migrations found in the project.");
+				return;
+			}
 
-			var migrationServiceType = assembly.GetExportedTypes().FirstOrDefault(t => t.Name == "GoogleMigrationService") ?? typeof(GoogleMigrationService);
-			var migrationService = Activator.CreateInstance(migrationServiceType, context.provider, snapshotPath);
-			var updateHistoryMethod = migrationService.GetType().GetMethod("UpdateHistoryAsync");
+			// 3. Filter pending migrations
+			var pendingMigrations = migrationTypes
+				.Where(x => !appliedMigrations.Contains(x.Attribute!.Id))
+				.ToList();
 
-			if (updateHistoryMethod != null)
-				await (Task)updateHistoryMethod.Invoke(migrationService, [DateTime.Now.ToString("yyyyMMddHHmmss"), snapshotJson])!;
+			if (pendingMigrations.Count == 0)
+			{
+				Console.WriteLine("✅ Database is up to date.");
+				return;
+			}
 
-			Console.WriteLine("✅ Muvaffaqiyatli yakunlandi.");
+			Console.WriteLine($"🚀 Found {pendingMigrations.Count} pending migration(s).");
+
+			// 4. Load current snapshot to enrich operations with ClassName
+			var snapshotType = assembly.GetTypes()
+				.FirstOrDefault(t => t.Name.EndsWith("ModelSnapshot") && t.IsSubclassOf(typeof(object)));
+
+			Core.Migration.MigrationSnapshot? currentSnapshot = null;
+			if (snapshotType != null)
+			{
+				var buildModelMethod = snapshotType.GetMethod("BuildModel", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+				if (buildModelMethod != null)
+				{
+					currentSnapshot = (Core.Migration.MigrationSnapshot?)buildModelMethod.Invoke(null, null);
+				}
+			}
+
+			// 5. Apply migrations
+			foreach (var pm in pendingMigrations)
+			{
+				var migrationId = pm.Attribute!.Id;
+				Console.Write($"Applying {migrationId}... ");
+
+				var migration = (Migration)Activator.CreateInstance(pm.Type)!;
+				var builder = new Core.Migrations.MigrationBuilder();
+				migration.Up(builder);
+
+				var operations = builder.GetOperations();
+
+				// Enrich operations with metadata from snapshot (ClassName, IsAutoIncrement)
+				if (currentSnapshot != null)
+				{
+					foreach (var op in operations.OfType<CreateTableOperation>())
+					{
+						if (currentSnapshot.Entities.TryGetValue(op.Name, out var entity))
+						{
+							op.ClassName = entity.ClassName;
+
+							// Enrich columns with IsAutoIncrement from snapshot
+							foreach (var col in op.Columns)
+							{
+								var snapshotCol = entity.Columns.FirstOrDefault(c => c.Name == col.Name);
+								if (snapshotCol != null)
+								{
+									col.IsAutoIncrement = snapshotCol.IsAutoIncrement;
+								}
+							}
+						}
+					}
+				}
+
+				await migrationService.ApplyMigrationAsync(operations, migrationId);
+
+				Console.WriteLine("Done.");
+			}
+
+			Console.WriteLine("✅ All migrations applied successfully.");
 		}
 		catch (Exception ex)
 		{
-			Console.WriteLine($"❌ Xato: {ex.Message}");
-			if (ex.InnerException != null) Console.WriteLine($"🔍 Tafsilot: {ex.InnerException.Message}");
+			Console.WriteLine($"❌ Error: {ex.Message}");
+			if (ex.InnerException != null) Console.WriteLine($"🔍 Detail: {ex.InnerException.Message}");
 		}
 	}
 }

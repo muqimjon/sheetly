@@ -32,14 +32,16 @@ public class AppDbContext : SheetsContext
 		{
 			e.HasSheetName("Categories");
 			e.HasKey(c => c.Id);
-			e.Property(c => c.Name).HasColumnName("Category_Name");
+			// Remove custom column name for now - use default
+			e.Property(c => c.Name);
 		});
 
 		modelBuilder.Entity<Product>(e =>
 		{
 			e.HasSheetName("Products");
 			e.Property(p => p.Title);
-			e.Property(p => p.Price).HasColumnName("Market_Price");
+			// Remove custom column name for now - use default
+			e.Property(p => p.Price);
 		});
 	}
 }

@@ -1,5 +1,4 @@
 ﻿using ClosedXML.Excel;
-using Sheetly.Core.Migration;
 
 namespace Sheetly.Core.Migration;
 
@@ -81,7 +80,7 @@ public class ExcelScriptGenerator
 				schemaSheet.Cell(row, 2).Value = col.PropertyName;
 				schemaSheet.Cell(row, 3).Value = col.DataType;
 				schemaSheet.Cell(row, 4).Value = $"{(col.IsPrimaryKey ? "PK" : "")},{(col.IsNullable ? "" : "Required")}";
-				schemaSheet.Cell(row, 5).Value = col.RelatedTable ?? "";
+				schemaSheet.Cell(row, 5).Value = col.ForeignKeyTable ?? "";
 				schemaSheet.Cell(row, 6).Value = col.DefaultValue?.ToString() ?? "";
 				schemaSheet.Cell(row, 7).Value = col.IsPrimaryKey ? "1" : "";
 				row++;

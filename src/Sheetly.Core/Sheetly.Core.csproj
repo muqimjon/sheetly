@@ -5,9 +5,14 @@
 		<Nullable>enable</Nullable>
 
 		<PackageId>Sheetly.Core</PackageId>
-		<Version>1.0.2</Version>
+		<Version>1.0.0</Version>
 		<Company>Dotnetolog</Company>
 		<Authors>Muqimjon Mamadaliyev</Authors>
+		<Description>Entity Framework Core-like ORM for Google Sheets. Work with spreadsheets using familiar EF Core patterns, migrations, and LINQ-style queries.</Description>
+		<PackageTags>orm;google-sheets;entity-framework;migrations;spreadsheet;dotnet</PackageTags>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
+		<RepositoryUrl>https://github.com/yourusername/sheetly</RepositoryUrl>
+		<PackageProjectUrl>https://github.com/yourusername/sheetly</PackageProjectUrl>
 
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 	</PropertyGroup>

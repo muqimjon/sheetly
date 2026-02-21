@@ -1,12 +1,9 @@
-﻿using Sheetly.Core.Migration;
-
-namespace Sheetly.Core.Abstractions;
+﻿namespace Sheetly.Core.Abstractions;
 
 public interface ISheetsProvider : IDisposable
 {
 	// --- Migratsiya va Baza boshqaruvi ---
 	Task InitializeAsync();
-	Task ApplyMigrationAsync(MigrationSnapshot snapshot);
 	Task DropDatabaseAsync();
 
 	// --- Ma'lumotlar bilan ishlash ---

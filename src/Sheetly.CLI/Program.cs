@@ -1,5 +1,5 @@
-﻿using System.CommandLine;
-using Sheetly.CLI.Commands;
+﻿using Sheetly.CLI.Commands;
+using System.CommandLine;
 
 // Root Command
 RootCommand rootCommand = new("Sheetly CLI - Google Sheets ORM Tool");
@@ -11,6 +11,7 @@ var databaseCommand = new Command("database", "Commands to manage the database")
 // Migrations subcommands
 migrationsCommand.Subcommands.Add(new AddCommand());
 migrationsCommand.Subcommands.Add(new RemoveCommand());
+migrationsCommand.Subcommands.Add(new ListCommand());
 migrationsCommand.Subcommands.Add(new ScriptCommand());
 
 // Database subcommands

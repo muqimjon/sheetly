@@ -5,9 +5,12 @@
 		<Nullable>enable</Nullable>
 
 		<PackageId>Sheetly.Google</PackageId>
-		<Version>1.0.2</Version>
+		<Version>1.0.0</Version>
 		<Company>Dotnetolog</Company>
 		<Authors>Muqimjon Mamadaliyev</Authors>
+		<Description>Google Sheets provider for Sheetly ORM. Enables Entity Framework Core-like access to Google Sheets with migrations and constraints.</Description>
+		<PackageTags>google-sheets;sheets-api;sheetly;orm;provider</PackageTags>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 	</PropertyGroup>

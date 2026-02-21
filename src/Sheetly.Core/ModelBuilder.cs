@@ -16,8 +16,8 @@ public class ModelBuilder
 		var type = typeof(T);
 		if (!builders.TryGetValue(type, out EntityMetadata? value))
 		{
-            value = new EntityTypeBuilder<T>();
-            builders[type] = value;
+			value = new EntityTypeBuilder<T>();
+			builders[type] = value;
 		}
 		return (EntityTypeBuilder<T>)value;
 	}
