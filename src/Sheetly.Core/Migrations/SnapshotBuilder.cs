@@ -18,8 +18,9 @@ public static class SnapshotBuilder
 	/// Builds a snapshot from the specified context type.
 	/// </summary>
 	/// <param name="contextType">The SheetsContext type to analyze.</param>
+	/// <param name="modelMetadata">Optional model metadata from ModelBuilder configuration.</param>
 	/// <returns>A snapshot of the current model.</returns>
-	public static MigrationSnapshot BuildFromContext(Type contextType)
+	public static MigrationSnapshot BuildFromContext(Type contextType, Dictionary<Type, EntityMetadata>? modelMetadata = null)
 	{
 		var snapshot = new MigrationSnapshot();
 
@@ -38,22 +39,37 @@ public static class SnapshotBuilder
 				ClassName = entityType.Name,
 				Namespace = entityType.Namespace ?? string.Empty
 			};
+			
+			// Get ModelBuilder configuration for this entity (if available)
+			EntityMetadata? entityMetadata = null;
+			modelMetadata?.TryGetValue(entityType, out entityMetadata);
 
 			var properties = entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
 
 			foreach (var prop in properties)
 			{
 				if (IsNavigationProperty(prop)) continue;
+				
+				// Get property configuration from ModelBuilder (if available)
+				PropertyBuilder? propConfig = null;
+				entityMetadata?.Properties.TryGetValue(prop.Name, out propConfig);
 
 				var column = new ColumnSchema
 				{
-					Name = GetColumnName(prop),
+					Name = propConfig?.ColumnName ?? GetColumnName(prop),
 					PropertyName = prop.Name,
 					DataType = GetSimpleTypeName(prop.PropertyType),
 					IsPrimaryKey = IsPrimaryKey(prop),
 					IsAutoIncrement = IsPrimaryKey(prop),  // EF Core: PKs are auto-increment by default
-					IsNullable = IsPropertyNullable(prop) && !prop.IsDefined(typeof(RequiredAttribute)),
-					MaxLength = prop.GetCustomAttribute<MaxLengthAttribute>()?.Length
+					
+					// Combine attributes and ModelBuilder configuration
+					IsNullable = IsPropertyNullable(prop) && !prop.IsDefined(typeof(RequiredAttribute)) && !(propConfig?.IsRequiredValue ?? false),
+					IsRequired = prop.IsDefined(typeof(RequiredAttribute)) || (propConfig?.IsRequiredValue ?? false),
+					MaxLength = propConfig?.MaxLength ?? prop.GetCustomAttribute<MaxLengthAttribute>()?.Length,
+					MinLength = propConfig?.MinLength,
+					MinValue = propConfig?.MinValue,
+					MaxValue = propConfig?.MaxValue,
+					DefaultValue = propConfig?.DefaultValue
 				};
 
 				// Detect foreign keys

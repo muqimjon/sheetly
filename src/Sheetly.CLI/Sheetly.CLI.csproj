@@ -9,7 +9,7 @@
 		<ToolCommandName>dotnet-sheetly</ToolCommandName>
 		<PackageId>dotnet-sheetly</PackageId>
 
-		<Version>1.0.0</Version>
+		<Version>1.0.1</Version>
 		<Company>Dotnetolog</Company>
 		<Authors>Muqimjon Mamadaliyev</Authors>
 		<Description>Command-line tool for Sheetly ORM. Manage migrations, update database, and scaffold models - just like Entity Framework Core CLI.</Description>

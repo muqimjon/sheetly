@@ -46,8 +46,8 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 
 	public void Update(T entity)
 	{
-		if (!_trackedEntities.ContainsKey(entity))
-			_trackedEntities[entity] = EntityState.Modified;
+		// Mark entity as Modified (EF Core style)
+		_trackedEntities[entity] = EntityState.Modified;
 	}
 
 	public void Remove(T entity) => _trackedEntities[entity] = EntityState.Deleted;
@@ -70,15 +70,17 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		for (int i = 1; i < rows.Count; i++)
 		{
 			var entity = EntityMapper.MapFromRow<T>(rows[i], headers, schema);
-
-			if (!_asNoTracking)
+			result.Add(entity);
+			
+			// Track entities as Unchanged (EF Core style)
+			if (!_trackedEntities.ContainsKey(entity))
 			{
 				_trackedEntities[entity] = EntityState.Unchanged;
-				_entityRowIndexes[entity] = i + 1;
+				_entityRowIndexes[entity] = i + 1; // Google Sheets A1 notation (row 1 = header, row 2 = first data)
 			}
-			result.Add(entity);
 		}
-
+		
+		// Process includes if any
 		if (_includes.Any())
 		{
 			await ProcessIncludes(result);

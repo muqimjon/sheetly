@@ -42,11 +42,32 @@ public class GoogleSheetProvider : ISheetsProvider
 	public async Task DropDatabaseAsync()
 	{
 		var ss = await _service.Spreadsheets.Get(_spreadsheetId).ExecuteAsync();
-		foreach (var sheet in ss.Sheets)
+		var sheetsList = ss.Sheets.ToList();
+		
+		// Get list of app-related sheets (migration tables and user tables)
+		var appSheets = sheetsList
+			.Where(s => s.Properties.Title.StartsWith("__Sheetly") || 
+			            !s.Properties.Title.Equals("Sheet1", StringComparison.OrdinalIgnoreCase))
+			.ToList();
+		
+		// If all sheets are app sheets, keep one default sheet
+		if (appSheets.Count == sheetsList.Count && sheetsList.Count > 0)
 		{
-			if (ss.Sheets.Count > 1)
+			// Create a default sheet first
+			await CreateSheetAsync("Sheet1", new List<string>());
+			sheetsList = (await _service.Spreadsheets.Get(_spreadsheetId).ExecuteAsync()).Sheets.ToList();
+		}
+		
+		// Delete only app sheets, preserving default/empty sheets
+		foreach (var sheet in sheetsList)
+		{
+			var title = sheet.Properties.Title;
+			
+			// Delete if it's a Sheetly system sheet or not a default sheet
+			if (title.StartsWith("__Sheetly") || 
+			    (!title.Equals("Sheet1", StringComparison.OrdinalIgnoreCase) && sheetsList.Count > 1))
 			{
-				await DeleteSheetAsync(sheet.Properties.Title);
+				await DeleteSheetAsync(title);
 			}
 		}
 	}

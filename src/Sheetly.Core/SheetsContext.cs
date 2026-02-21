@@ -3,6 +3,7 @@ using Sheetly.Core.Configuration;
 using Sheetly.Core.Infrastructure;
 using Sheetly.Core.Mapping;
 using Sheetly.Core.Migration;
+using Sheetly.Core.Migrations;
 using Sheetly.Core.Validation;
 using Sheetly.Core.Validation.Rules;
 using System.Reflection;
@@ -39,7 +40,7 @@ public abstract class SheetsContext : IDisposable
 		var modelBuilder = new ModelBuilder();
 		OnModelCreating(modelBuilder);
 
-		_currentSnapshot = MigrationBuilder.BuildFromContext(GetType(), modelBuilder);
+		_currentSnapshot = SnapshotBuilder.BuildFromContext(GetType(), modelBuilder.GetMetadata());
 		_validator = new ConstraintValidator(_currentSnapshot);
 
 		// Check migration synchronization

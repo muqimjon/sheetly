@@ -58,7 +58,7 @@ public static class MigrationBuilder
 								   || EntityMapper.IsPrimaryKey(prop),
 
 					IsNullable = fluentProp != null
-								 ? !fluentProp.IsRequired
+								 ? !fluentProp.IsRequiredValue
 								 : (prop.GetCustomAttribute<RequiredAttribute>() == null && IsPropertyNullable(prop)),
 
 					MaxLength = prop.GetCustomAttribute<MaxLengthAttribute>()?.Length

@@ -32,16 +32,21 @@ public class AppDbContext : SheetsContext
 		{
 			e.HasSheetName("Categories");
 			e.HasKey(c => c.Id);
-			// Remove custom column name for now - use default
-			e.Property(c => c.Name);
+			e.Property(c => c.Name)
+				.IsRequired()
+				.HasMaxLength(100)
+				.HasMinLength(3);
 		});
 
 		modelBuilder.Entity<Product>(e =>
 		{
 			e.HasSheetName("Products");
-			e.Property(p => p.Title);
-			// Remove custom column name for now - use default
-			e.Property(p => p.Price);
+			e.Property(p => p.Title)
+				.IsRequired()
+				.HasMaxLength(200);
+			e.Property(p => p.Price)
+				.IsRequired()
+				.HasRange(0, 1000000); // Price must be between 0 and 1,000,000
 		});
 	}
 }
