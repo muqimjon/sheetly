@@ -8,13 +8,17 @@ public static class GoogleSheetsOptionsExtensions
 	{
 		options.ConnectionString = connectionString;
 		var conn = SheetsConnectionString.Parse(connectionString);
-		options.Provider = new GoogleSheetProvider(conn.CredentialsPath, conn.SpreadsheetId);
+		var provider = new GoogleSheetProvider(conn.CredentialsPath, conn.SpreadsheetId);
+		options.Provider = provider;
+		options.MigrationService = new GoogleMigrationService(provider);
 		return options;
 	}
 
 	public static SheetsOptions UseGoogleSheets(this SheetsOptions options, string credentialsPath, string spreadsheetId)
 	{
-		options.Provider = new GoogleSheetProvider(credentialsPath, spreadsheetId);
+		var provider = new GoogleSheetProvider(credentialsPath, spreadsheetId);
+		options.Provider = provider;
+		options.MigrationService = new GoogleMigrationService(provider);
 		return options;
 	}
 }

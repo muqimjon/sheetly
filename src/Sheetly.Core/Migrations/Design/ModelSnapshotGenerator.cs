@@ -33,7 +33,7 @@ public class ModelSnapshotGenerator
 		// Class definition with inheritance and constructor
 		sb.AppendLine($"public partial class {contextName}ModelSnapshot : MigrationSnapshot");
 		sb.AppendLine("{");
-		
+
 		// Constructor
 		sb.AppendLine($"{Indent}public {contextName}ModelSnapshot()");
 		sb.AppendLine($"{Indent}{{");

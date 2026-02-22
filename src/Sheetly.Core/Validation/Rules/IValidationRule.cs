@@ -40,4 +40,9 @@ public class ValidationContext
 	/// Gets existing IDs for primary key validation.
 	/// </summary>
 	public HashSet<object> ExistingPrimaryKeys { get; init; } = new();
+
+	/// <summary>
+	/// Gets all entity schemas for FK resolution.
+	/// </summary>
+	public Dictionary<string, EntitySchema> AllSchemas { get; init; } = new();
 }

@@ -3,7 +3,7 @@ using Sheetly.Core.Migrations.Operations;
 
 namespace Sheetly.Google;
 
-public class GoogleMigrationService(ISheetsProvider provider)
+public class GoogleMigrationService(ISheetsProvider provider) : IMigrationService
 {
 	private const string HistoryTable = "__SheetlyMigrationsHistory__";
 	private const string SchemaTable = "__SheetlySchema__";
@@ -113,10 +113,9 @@ public class GoogleMigrationService(ISheetsProvider provider)
 		var headers = op.Columns.Select(c => c.Name).ToList();
 		await provider.CreateSheetAsync(op.Name, headers);
 
-		// Update Schema Table with ClassName (may be empty if not provided in migration)
 		foreach (var col in op.Columns)
 		{
-			col.Table = op.Name;  // Ensure table name is set
+			col.Table = op.Name;
 			await AddColumnToSchemaAsync(col, op.ClassName);
 		}
 	}
@@ -124,60 +123,34 @@ public class GoogleMigrationService(ISheetsProvider provider)
 	private async Task DropTableAsync(DropTableOperation op)
 	{
 		if (await provider.SheetExistsAsync(op.Name))
-		{
 			await provider.DeleteSheetAsync(op.Name);
-		}
 
-		// Remove from schema table
-		// This is inefficient in Sheets, but necessary. 
-		// Logic: Read all rows, filter out rows for this table, rewrite.
-		// For MVP, maybe we skip this or implement inefficiently.
-		// Let's implement basic deletion
+		// Rewrite schema table without this table's rows
 		var rows = await provider.GetAllRowsAsync(SchemaTable);
-		var newRows = new List<IList<object>> { rows[0] }; // Keep header
+		var newRows = new List<IList<object>> { rows[0] };
 
 		for (int i = 1; i < rows.Count; i++)
 		{
-			if (rows[i].Count > 0 && rows[i][0]?.ToString() == op.Name) continue;
+			if (rows[i].Count > 1 && rows[i][1]?.ToString() == op.Name) continue;
 			newRows.Add(rows[i]);
 		}
 
-		// This clears and rewrites. Provider might need a ClearSheet method or similar.
-		// Or delete sheet and recreate.
-		// Simplest for now: 
 		await provider.ClearSheetAsync(SchemaTable);
 		foreach (var row in newRows)
-		{
 			await provider.AppendRowAsync(SchemaTable, row);
-		}
 	}
 
 	private async Task AddColumnAsync(AddColumnOperation op)
 	{
-		// Add header to sheet
 		var rows = await provider.GetRowByIndexAsync(op.Table, 1);
 		var headers = rows?.Select(x => x?.ToString() ?? "").ToList() ?? new List<string>();
 
 		if (!headers.Contains(op.Name))
 		{
-			// Adding a column in Sheets usually means adding a value to the first row
-			// We need to know column index.
-			// provider.AppendColumn? provider.UpdateValue?
-			// Assuming we just append to first row.
-			// For now, let's assume we can't easily add columns to data sheets without rewriting headers
-			// Provider interface check needed.
-			// Let's try to append to row 1.
-			var columnIndex = headers.Count + 1;
-			// Convert index to A1 notation? Provider should handle this.
-			// provider doesn't seem to have AddColumn.
-			// We'll append a value to the header row.
-			// Assuming provider has UpdateValueAsync(sheet, cell, value)
-			// Or we just update row 1.
 			var newHeaders = new List<object>(headers.Cast<object>()) { op.Name };
 			await provider.UpdateRowAsync(op.Table, 1, newHeaders);
 		}
 
-		// Update Schema
 		await AddColumnToSchemaAsync(op, op.ClassName);
 	}
 
@@ -185,53 +158,48 @@ public class GoogleMigrationService(ISheetsProvider provider)
 	{
 		await provider.AppendRowAsync(SchemaTable,
 		[
-			className ?? "",                                                // ClassName - from CreateTableOperation or empty
-            col.Table,                                                      // TableName
-            col.Name,                                                       // PropertyName
-            col.Name,                                                       // ColumnName (same for now)
-            col.ClrType.Name,                                              // DataType
-            col.IsNullable.ToString(),                                     // IsNullable
-            col.IsRequired.ToString(),                                     // IsRequired
-            col.IsPrimaryKey.ToString(),                                   // IsPrimaryKey
-            (!string.IsNullOrEmpty(col.ForeignKeyTable)).ToString(),      // IsForeignKey
-            col.ForeignKeyTable ?? "",                                     // ForeignKeyTable
-            (!string.IsNullOrEmpty(col.ForeignKeyTable) ? col.ForeignKeyColumn : ""),  // ForeignKeyColumn - only if FK
-            col.OnDelete.ToString(),                                       // OnDelete
-            col.OnUpdate.ToString(),                                       // OnUpdate
-            col.IsUnique.ToString(),                                       // IsUnique (TRUE for PK automatically)
-            col.IndexName ?? "",                                           // IndexName
-            col.MaxLength?.ToString() ?? "",                               // MaxLength
-            col.MinLength?.ToString() ?? "",                               // MinLength
-            col.Precision?.ToString() ?? "",                               // Precision
-            col.Scale?.ToString() ?? "",                                   // Scale
-            col.MinValue?.ToString() ?? "",                                // MinValue
-            col.MaxValue?.ToString() ?? "",                                // MaxValue
-            col.DefaultValue?.ToString() ?? "",                            // DefaultValue - static default value
-            col.DefaultValueSql ?? "",                                     // DefaultValueSql - SQL expression
-            col.CheckConstraint ?? "",                                     // CheckConstraint
-            col.IsComputed.ToString(),                                     // IsComputed
-            col.ComputedColumnSql ?? "",                                   // ComputedSql
-            col.IsConcurrencyToken.ToString(),                             // IsConcurrencyToken
-            col.IsAutoIncrement.ToString(),                                // IsAutoIncrement
-            col.IsPrimaryKey ? "0" : "",                                   // CurrentIdValue - current auto-increment value (only for PK)
-            col.Comment ?? ""                                              // Comment
-        ]);
+			className ?? "",
+			col.Table,
+			col.Name,
+			col.Name,
+			col.ClrType.Name,
+			col.IsNullable.ToString(),
+			col.IsRequired.ToString(),
+			col.IsPrimaryKey.ToString(),
+			(!string.IsNullOrEmpty(col.ForeignKeyTable)).ToString(),
+			col.ForeignKeyTable ?? "",
+			(!string.IsNullOrEmpty(col.ForeignKeyTable) ? col.ForeignKeyColumn : ""),
+			col.OnDelete.ToString(),
+			col.OnUpdate.ToString(),
+			col.IsUnique.ToString(),
+			col.IndexName ?? "",
+			col.MaxLength?.ToString() ?? "",
+			col.MinLength?.ToString() ?? "",
+			col.Precision?.ToString() ?? "",
+			col.Scale?.ToString() ?? "",
+			col.MinValue?.ToString() ?? "",
+			col.MaxValue?.ToString() ?? "",
+			col.DefaultValue?.ToString() ?? "",
+			col.DefaultValueSql ?? "",
+			col.CheckConstraint ?? "",
+			col.IsComputed.ToString(),
+			col.ComputedColumnSql ?? "",
+			col.IsConcurrencyToken.ToString(),
+			col.IsAutoIncrement.ToString(),
+			col.IsPrimaryKey ? "0" : "",     // CurrentIdValue (auto-increment PK only)
+			col.Comment ?? ""
+		]);
 	}
 
 	private async Task EnsureSystemTablesExistAsync()
 	{
-		// Create migrations history table (visible like EF Core's __EFMigrationsHistory)
 		if (!await provider.SheetExistsAsync(HistoryTable))
-		{
 			await provider.CreateSheetAsync(HistoryTable, ["MigrationId", "AppliedAt", "ProductVersion"]);
-			// Keep visible - just like EF Core's __EFMigrationsHistory table
-		}
 
-		// Create schema table (hidden - internal metadata)
 		if (!await provider.SheetExistsAsync(SchemaTable))
 		{
 			await provider.CreateSheetAsync(SchemaTable, SchemaTableHeaders);
-			await provider.HideSheetAsync(SchemaTable);  // Hide schema table
+			await provider.HideSheetAsync(SchemaTable);
 		}
 	}
 
@@ -246,19 +214,12 @@ public class GoogleMigrationService(ISheetsProvider provider)
 		// Note: Google Sheets doesn't support dropping columns directly
 		// We would need to recreate the sheet without that column
 		// For now, log a warning
-		Console.WriteLine($"Warning: DropColumn operation for '{op.Table}.{op.Name}' requires manual intervention in Google Sheets.");
-
-		// Remove from schema table
+		Console.WriteLine($"Warning: DropColumn '{op.Table}.{op.Name}' requires manual intervention in Google Sheets.");
 		await RemoveFromSchemaTableAsync(op.Table, op.Name);
 	}
 
 	private async Task AlterColumnAsync(AlterColumnOperation op)
 	{
-		// Note: Google Sheets doesn't support altering columns directly
-		// We update the schema table to reflect the change
-		Console.WriteLine($"Info: AlterColumn operation for '{op.Table}.{op.Name}' - updating schema metadata.");
-
-		// Update schema table
 		var rows = await provider.GetAllRowsAsync(SchemaTable);
 		for (int i = 1; i < rows.Count; i++)
 		{
@@ -266,23 +227,19 @@ public class GoogleMigrationService(ISheetsProvider provider)
 				rows[i][1]?.ToString() == op.Table &&
 				rows[i][2]?.ToString() == op.Name)
 			{
-				// Update the relevant fields
+				// Pad row to full schema width to avoid index-out-of-range on sparse rows
 				var updatedRow = rows[i].ToList();
+				while (updatedRow.Count < SchemaTableHeaders.Length)
+					updatedRow.Add("");
 
-				if (op.ClrType != null)
-					updatedRow[4] = op.ClrType.Name; // DataType
-
+				if (op.ClrType != null) updatedRow[4] = op.ClrType.Name;
 				if (op.IsNullable.HasValue)
 				{
-					updatedRow[5] = op.IsNullable.Value.ToString(); // IsNullable
-					updatedRow[6] = (!op.IsNullable.Value).ToString(); // IsRequired
+					updatedRow[5] = op.IsNullable.Value.ToString();
+					updatedRow[6] = (!op.IsNullable.Value).ToString();
 				}
-
-				if (op.MaxLength.HasValue)
-					updatedRow[15] = op.MaxLength.Value.ToString();
-
-				if (op.DefaultValue != null)
-					updatedRow[21] = op.DefaultValue.ToString() ?? "";
+				if (op.MaxLength.HasValue) updatedRow[15] = op.MaxLength.Value.ToString();
+				if (op.DefaultValue != null) updatedRow[21] = op.DefaultValue.ToString() ?? "";
 
 				await provider.UpdateRowAsync(SchemaTable, i + 1, updatedRow);
 				break;
@@ -292,11 +249,7 @@ public class GoogleMigrationService(ISheetsProvider provider)
 
 	private async Task CreateIndexAsync(CreateIndexOperation op)
 	{
-		// Note: Google Sheets doesn't have indexes in the traditional sense
-		// We record it in the schema table for documentation purposes
-		Console.WriteLine($"Info: CreateIndex '{op.Name}' on '{op.Table}' - recorded in schema (Sheets doesn't support native indexes).");
-
-		// Update IndexName field for relevant columns in schema table
+		// Indexes are metadata-only in Sheets — recorded in schema for scaffold/documentation
 		var rows = await provider.GetAllRowsAsync(SchemaTable);
 		for (int i = 1; i < rows.Count; i++)
 		{
@@ -305,8 +258,11 @@ public class GoogleMigrationService(ISheetsProvider provider)
 				op.Columns.Contains(rows[i][2]?.ToString() ?? ""))
 			{
 				var updatedRow = rows[i].ToList();
-				updatedRow[14] = op.Name; // IndexName
-				updatedRow[13] = op.IsUnique.ToString(); // IsUnique
+				while (updatedRow.Count < SchemaTableHeaders.Length)
+					updatedRow.Add("");
+
+				updatedRow[14] = op.Name;
+				updatedRow[13] = op.IsUnique.ToString();
 				await provider.UpdateRowAsync(SchemaTable, i + 1, updatedRow);
 			}
 		}
@@ -314,9 +270,6 @@ public class GoogleMigrationService(ISheetsProvider provider)
 
 	private async Task DropIndexAsync(DropIndexOperation op)
 	{
-		Console.WriteLine($"Info: DropIndex '{op.Name}' from '{op.Table}' - removing from schema.");
-
-		// Clear IndexName field for columns with this index
 		var rows = await provider.GetAllRowsAsync(SchemaTable);
 		for (int i = 1; i < rows.Count; i++)
 		{
@@ -325,47 +278,32 @@ public class GoogleMigrationService(ISheetsProvider provider)
 				rows[i][14]?.ToString() == op.Name)
 			{
 				var updatedRow = rows[i].ToList();
-				updatedRow[14] = ""; // Clear IndexName
+				updatedRow[14] = "";
 				await provider.UpdateRowAsync(SchemaTable, i + 1, updatedRow);
 			}
 		}
 	}
 
-	private async Task AddCheckConstraintAsync(AddCheckConstraintOperation op)
-	{
-		Console.WriteLine($"Info: AddCheckConstraint '{op.Name}' on '{op.Table}' - recorded in schema (validated locally before save).");
+	private Task AddCheckConstraintAsync(AddCheckConstraintOperation op) => Task.CompletedTask;
 
-		// Record in schema table - check constraints are validated locally, not in Sheets
-		// This is recorded for documentation and scaffold purposes
-	}
-
-	private async Task DropCheckConstraintAsync(DropCheckConstraintOperation op)
-	{
-		Console.WriteLine($"Info: DropCheckConstraint '{op.Name}' from '{op.Table}' - removed from schema.");
-	}
+	private Task DropCheckConstraintAsync(DropCheckConstraintOperation op) => Task.CompletedTask;
 
 	private async Task RemoveFromSchemaTableAsync(string tableName, string columnName)
 	{
 		var rows = await provider.GetAllRowsAsync(SchemaTable);
-		var newRows = new List<IList<object>> { rows[0] }; // Keep header
+		var newRows = new List<IList<object>> { rows[0] };
 
 		for (int i = 1; i < rows.Count; i++)
 		{
-			// Skip row if it matches the table and column to remove
 			if (rows[i].Count > 2 &&
 				rows[i][1]?.ToString() == tableName &&
 				rows[i][2]?.ToString() == columnName)
-			{
 				continue;
-			}
 			newRows.Add(rows[i]);
 		}
 
-		// Clear and rewrite schema table
 		await provider.ClearSheetAsync(SchemaTable);
 		foreach (var row in newRows)
-		{
 			await provider.AppendRowAsync(SchemaTable, row);
-		}
 	}
 }

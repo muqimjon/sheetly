@@ -12,7 +12,7 @@ namespace Sheetly.Core;
 
 public abstract class SheetsContext : IDisposable
 {
-	public ISheetsProvider provider { get; private set; } = default!;
+	public ISheetsProvider Provider { get; private set; } = default!;
 	public DatabaseFacade Database { get; private set; } = default!;
 
 	private readonly Dictionary<Type, object> sets = [];
@@ -23,19 +23,21 @@ public abstract class SheetsContext : IDisposable
 
 	protected virtual void OnConfiguring(SheetsOptions options) { }
 
-	public virtual async Task InitializeAsync(ISheetsProvider? provider = null)
+	public virtual async Task InitializeAsync(ISheetsProvider? provider = null, IMigrationService? migrationService = null)
 	{
 		if (provider == null)
 		{
 			var options = new SheetsOptions();
 			OnConfiguring(options);
-			provider = options.Provider ?? throw new InvalidOperationException("ISheetsProvider ko'rsatilmadi. OnConfiguring-da UseGoogleSheets metodini chaqiring.");
+			provider = options.Provider ?? throw new InvalidOperationException(
+				"ISheetsProvider not configured. Call UseGoogleSheets in OnConfiguring.");
+			migrationService ??= options.MigrationService;
 		}
 
-		this.provider = provider;
-		Database = new DatabaseFacade(this.provider);
+		this.Provider = provider;
+		Database = new DatabaseFacade(this.Provider, migrationService, GetType());
 
-		await this.provider.InitializeAsync();
+		await this.Provider.InitializeAsync();
 
 		var modelBuilder = new ModelBuilder();
 		OnModelCreating(modelBuilder);
@@ -43,68 +45,61 @@ public abstract class SheetsContext : IDisposable
 		_currentSnapshot = SnapshotBuilder.BuildFromContext(GetType(), modelBuilder.GetMetadata());
 		_validator = new ConstraintValidator(_currentSnapshot);
 
-		// Check migration synchronization
 		await CheckMigrationSyncAsync();
+		CheckModelSnapshotSync();
 
 		InitializeSets(provider, _currentSnapshot);
 	}
 
 	/// <summary>
-	/// Checks if local and remote migrations are synchronized.
-	/// Warns if there are pending migrations that haven't been applied to the database.
+	/// Verifies that all local migrations have been applied to the remote database.
+	/// Throws if pending migrations exist, like EF Core does on model mismatch.
 	/// </summary>
 	private async Task CheckMigrationSyncAsync()
 	{
-		try
+		var contextAssembly = GetType().Assembly;
+		var localMigrations = GetLocalMigrations(contextAssembly);
+
+		if (localMigrations.Count == 0) return;
+
+		var appliedMigrations = await GetAppliedMigrationsFromRemoteAsync();
+
+		var pendingMigrations = localMigrations
+			.Where(m => !appliedMigrations.Contains(m))
+			.ToList();
+
+		if (pendingMigrations.Count > 0)
 		{
-			// Get local migrations from Migrations folder
-			var contextAssembly = GetType().Assembly;
-			var localMigrations = GetLocalMigrations(contextAssembly);
+			var migrationList = string.Join(", ", pendingMigrations.Take(5));
+			if (pendingMigrations.Count > 5)
+				migrationList += $" ... and {pendingMigrations.Count - 5} more";
 
-			if (localMigrations.Count == 0)
-			{
-				// No migrations found locally - this is OK for new projects
-				return;
-			}
-
-			// Get applied migrations from remote database
-			var appliedMigrations = await GetAppliedMigrationsFromRemoteAsync();
-
-			// Find pending migrations
-			var pendingMigrations = localMigrations
-				.Where(m => !appliedMigrations.Contains(m))
-				.ToList();
-
-			if (pendingMigrations.Count > 0)
-			{
-				Console.ForegroundColor = ConsoleColor.Yellow;
-				Console.WriteLine("⚠️  WARNING: Pending migrations detected!");
-				Console.WriteLine($"   {pendingMigrations.Count} migration(s) have not been applied to the database:");
-				foreach (var migration in pendingMigrations.Take(5))
-				{
-					Console.WriteLine($"   - {migration}");
-				}
-				if (pendingMigrations.Count > 5)
-				{
-					Console.WriteLine($"   ... and {pendingMigrations.Count - 5} more");
-				}
-				Console.WriteLine("   Run 'dotnet sheetly database update' to apply pending migrations.");
-				Console.ResetColor();
-			}
-			else
-			{
-				// All migrations are applied
-				Console.ForegroundColor = ConsoleColor.Green;
-				Console.WriteLine($"✓ Database is up to date ({appliedMigrations.Count} migrations applied)");
-				Console.ResetColor();
-			}
+			throw new InvalidOperationException(
+				$"The database is not up to date. {pendingMigrations.Count} pending migration(s): [{migrationList}]. " +
+				$"Apply them using 'dotnet sheetly database update' or call 'Database.MigrateAsync()' before using the context.");
 		}
-		catch (Exception ex)
+	}
+
+	/// <summary>
+	/// Compares the live model with the stored ModelSnapshot to detect unapplied model changes.
+	/// </summary>
+	private void CheckModelSnapshotSync()
+	{
+		if (_currentSnapshot == null) return;
+
+		var snapshotType = GetType().Assembly.GetTypes()
+			.FirstOrDefault(t => t.Name.EndsWith("ModelSnapshot") && t.IsSubclassOf(typeof(MigrationSnapshot)));
+
+		if (snapshotType == null) return; // No snapshot class yet — new project
+
+		var storedSnapshot = (MigrationSnapshot?)Activator.CreateInstance(snapshotType);
+		if (storedSnapshot == null) return;
+
+		if (_currentSnapshot.ModelHash != storedSnapshot.ModelHash)
 		{
-			// Don't fail initialization if migration check fails
-			Console.ForegroundColor = ConsoleColor.DarkYellow;
-			Console.WriteLine($"⚠️  Could not verify migration status: {ex.Message}");
-			Console.ResetColor();
+			throw new InvalidOperationException(
+				"The model has changed since the last migration was created. " +
+				"Create a new migration using 'dotnet sheetly migration add <Name>' to apply your model changes.");
 		}
 	}
 
@@ -136,13 +131,13 @@ public abstract class SheetsContext : IDisposable
 	{
 		const string HistoryTable = "__SheetlyMigrationsHistory__";
 
-		if (!await provider.SheetExistsAsync(HistoryTable))
+		if (!await Provider.SheetExistsAsync(HistoryTable))
 		{
 			// History table doesn't exist - database is new
 			return new List<string>();
 		}
 
-		var rows = await provider.GetAllRowsAsync(HistoryTable);
+		var rows = await Provider.GetAllRowsAsync(HistoryTable);
 
 		// Skip header row (index 0), get MigrationId from first column
 		return rows.Skip(1)
@@ -191,7 +186,6 @@ public abstract class SheetsContext : IDisposable
 
 	public async Task<int> SaveChangesAsync()
 	{
-		// Collect all pending entities (Added/Modified) for validation
 		var allPendingEntities = new List<object>();
 		var allDeletedEntities = new List<object>();
 
@@ -202,26 +196,14 @@ public abstract class SheetsContext : IDisposable
 			var getDeletedMethod = set.GetType().GetMethod("GetDeletedEntities",
 				BindingFlags.NonPublic | BindingFlags.Instance);
 
-			if (getPendingMethod != null)
-			{
-				var pending = getPendingMethod.Invoke(set, null) as IEnumerable<object>;
-				if (pending != null)
-				{
-					allPendingEntities.AddRange(pending);
-				}
-			}
+			if (getPendingMethod?.Invoke(set, null) is IEnumerable<object> pending)
+				allPendingEntities.AddRange(pending);
 
-			if (getDeletedMethod != null)
-			{
-				var deleted = getDeletedMethod.Invoke(set, null) as IEnumerable<object>;
-				if (deleted != null)
-				{
-					allDeletedEntities.AddRange(deleted);
-				}
-			}
+			if (getDeletedMethod?.Invoke(set, null) is IEnumerable<object> deleted)
+				allDeletedEntities.AddRange(deleted);
 		}
 
-		// Validate all pending entities (Add/Update) BEFORE making API calls
+		// Validate locally BEFORE any API calls (constraint checks, FK format, etc.)
 		if (_validator != null && allPendingEntities.Count > 0)
 		{
 			var result = new ValidationResult();
@@ -231,33 +213,35 @@ public abstract class SheetsContext : IDisposable
 				var entityType = entity.GetType();
 				var tableName = EntityMapper.GetTableName(entityType);
 
-				if (_currentSnapshot?.Entities.TryGetValue(tableName, out var schema) == true)
+				EntitySchema? schema = null;
+				if (!(_currentSnapshot?.Entities.TryGetValue(tableName, out schema) == true))
+					schema = _currentSnapshot?.Entities.Values.FirstOrDefault(e => e.ClassName == entityType.Name);
+
+				if (schema != null)
 				{
 					var context = new ValidationContext
 					{
 						TrackedEntities = allPendingEntities,
 						Schema = schema,
-						EntityType = entityType
+						EntityType = entityType,
+						AllSchemas = _currentSnapshot?.Entities ?? new()
 					};
 
-					var entityResult = _validator.Validate(entity, context);
-					result.Merge(entityResult);
+					result.Merge(_validator.Validate(entity, context));
 				}
 			}
 
 			if (!result.IsValid)
-			{
 				throw new ValidationException(result);
-			}
 		}
 
-		// Validate FK constraints on DELETE operations
+		// Remote FK validation — one API call per referenced table
+		if (allPendingEntities.Count > 0)
+			await ValidateForeignKeyReferencesAsync(allPendingEntities);
+
 		if (allDeletedEntities.Count > 0)
-		{
 			await ValidateForeignKeyConstraintsOnDelete(allDeletedEntities);
-		}
 
-		// Now save changes
 		int total = 0;
 		foreach (var set in sets.Values)
 		{
@@ -273,141 +257,180 @@ public abstract class SheetsContext : IDisposable
 		return total;
 	}
 
+	/// <summary>
+	/// Validates FK references by fetching remote data. Groups by table to minimize API calls.
+	/// </summary>
+	private async Task ValidateForeignKeyReferencesAsync(List<object> pendingEntities)
+	{
+		if (_currentSnapshot?.Entities == null || Provider == null) return;
+
+		var fkChecks = new Dictionary<string, HashSet<string>>();
+
+		foreach (var entity in pendingEntities)
+		{
+			var entityType = entity.GetType();
+			var schema = _currentSnapshot.Entities.Values
+				.FirstOrDefault(e => e.ClassName == entityType.Name);
+			if (schema == null) continue;
+
+			foreach (var column in schema.Columns.Where(c => c.IsForeignKey && !string.IsNullOrEmpty(c.ForeignKeyTable)))
+			{
+				var prop = entityType.GetProperty(column.PropertyName);
+				if (prop == null) continue;
+
+				var value = prop.GetValue(entity);
+				if (value == null || IsDefaultFkValue(value, prop.PropertyType)) continue;
+
+				var fkTableName = column.ForeignKeyTable!;
+				if (!fkChecks.ContainsKey(fkTableName))
+					fkChecks[fkTableName] = new HashSet<string>();
+
+				fkChecks[fkTableName].Add(value.ToString()!);
+			}
+		}
+
+		foreach (var (referencedTable, fkValues) in fkChecks)
+		{
+			if (!await Provider.SheetExistsAsync(referencedTable))
+				throw new InvalidOperationException(
+					$"Foreign key validation failed: Referenced table '{referencedTable}' does not exist.");
+
+			var rows = await Provider.GetAllRowsAsync(referencedTable);
+			if (rows.Count <= 1)
+				throw new InvalidOperationException(
+					$"Foreign key validation failed: Referenced table '{referencedTable}' has no data. " +
+					$"Cannot reference IDs: {string.Join(", ", fkValues)}");
+
+			var referencedSchema = _currentSnapshot.Entities.GetValueOrDefault(referencedTable);
+			if (referencedSchema == null) continue;
+
+			var pkColumn = referencedSchema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
+			if (pkColumn == null) continue;
+
+			var headers = rows[0].Select(h => h?.ToString() ?? "").ToList();
+			int pkColumnIndex = headers.IndexOf(pkColumn.PropertyName);
+			if (pkColumnIndex < 0) pkColumnIndex = headers.IndexOf(pkColumn.Name);
+			if (pkColumnIndex < 0) continue;
+
+			var existingPks = new HashSet<string>();
+			for (int i = 1; i < rows.Count; i++)
+			{
+				if (pkColumnIndex < rows[i].Count)
+				{
+					var pkVal = rows[i][pkColumnIndex]?.ToString();
+					if (!string.IsNullOrEmpty(pkVal))
+						existingPks.Add(pkVal);
+				}
+			}
+
+			var missingFks = fkValues.Where(fk => !existingPks.Contains(fk)).ToList();
+			if (missingFks.Count > 0)
+				throw new InvalidOperationException(
+					$"Foreign key constraint violation: The following IDs do not exist in '{referencedTable}': " +
+					$"{string.Join(", ", missingFks)}. Insert the referenced entities first.");
+		}
+	}
+
+	private static bool IsDefaultFkValue(object value, Type type)
+	{
+		var underlying = Nullable.GetUnderlyingType(type) ?? type;
+		if (underlying == typeof(int)) return (int)value == 0;
+		if (underlying == typeof(long)) return (long)value == 0;
+		if (underlying == typeof(short)) return (short)value == 0;
+		return false;
+	}
+
+	/// <summary>
+	/// Enforces FK constraints on delete: Restrict, Cascade, SetNull, SetDefault.
+	/// </summary>
 	private async Task ValidateForeignKeyConstraintsOnDelete(List<object> deletedEntities)
 	{
-		if (_currentSnapshot?.Entities == null || provider == null) return;
+		if (_currentSnapshot?.Entities == null || Provider == null) return;
 
 		foreach (var deletedEntity in deletedEntities)
 		{
 			var entityType = deletedEntity.GetType();
-
-			// Match by ClassName (not TableName)
 			var entitySchema = _currentSnapshot.Entities.Values
 				.FirstOrDefault(e => e.ClassName == entityType.Name);
-
 			if (entitySchema == null) continue;
 
-			// Get PK value of entity being deleted
 			var pkColumn = entitySchema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
 			if (pkColumn == null) continue;
 
 			var pkProp = entityType.GetProperty(pkColumn.PropertyName);
-			if (pkProp == null) continue;
-
-			var pkValue = pkProp.GetValue(deletedEntity);
+			var pkValue = pkProp?.GetValue(deletedEntity);
 			if (pkValue == null) continue;
 
-			// Check all other entities for FK references to this entity
 			foreach (var otherEntity in _currentSnapshot.Entities.Values)
 			{
-				// Skip self
 				if (otherEntity.TableName == entitySchema.TableName) continue;
 
-				// Find FK columns pointing to this table
 				var fkColumns = otherEntity.Columns
 					.Where(c => c.IsForeignKey && c.ForeignKeyTable == entitySchema.TableName)
 					.ToList();
-
 				if (fkColumns.Count == 0) continue;
 
-				// Check if any records reference this entity
 				foreach (var fkColumn in fkColumns)
 				{
-					var onDeleteAction = fkColumn.OnDelete;
+					if (!await Provider.SheetExistsAsync(otherEntity.TableName)) continue;
 
-					// Check if sheet exists and has referencing data
-					if (!await provider.SheetExistsAsync(otherEntity.TableName))
-						continue;
+					var dataRows = await Provider.GetAllRowsAsync(otherEntity.TableName);
+					if (dataRows.Count <= 1) continue;
 
-					var dataRows = await provider.GetAllRowsAsync(otherEntity.TableName);
-					if (dataRows.Count <= 1) continue; // Only header
-
-					// Find FK column index
 					var headerRow = dataRows[0];
 					int fkColumnIndex = -1;
 					for (int i = 0; i < headerRow.Count; i++)
 					{
 						if (headerRow[i]?.ToString() == fkColumn.PropertyName)
-						{
-							fkColumnIndex = i;
-							break;
-						}
+						{ fkColumnIndex = i; break; }
 					}
-
 					if (fkColumnIndex < 0) continue;
 
-					// Check for referencing rows
 					var referencingRows = new List<int>();
 					for (int i = 1; i < dataRows.Count; i++)
 					{
-						if (fkColumnIndex < dataRows[i].Count)
-						{
-							var fkValue = dataRows[i][fkColumnIndex]?.ToString();
-							if (fkValue == pkValue.ToString())
-							{
-								referencingRows.Add(i);
-							}
-						}
+						if (fkColumnIndex < dataRows[i].Count &&
+							dataRows[i][fkColumnIndex]?.ToString() == pkValue.ToString())
+							referencingRows.Add(i);
 					}
 
-					if (referencingRows.Count > 0)
+					if (referencingRows.Count == 0) continue;
+
+					switch (fkColumn.OnDelete)
 					{
-						// Handle based on OnDelete action
-						switch (onDeleteAction)
-						{
-							case ForeignKeyAction.Restrict:
-							case ForeignKeyAction.NoAction:
+						case ForeignKeyAction.Restrict:
+						case ForeignKeyAction.NoAction:
+							throw new InvalidOperationException(
+								$"Cannot delete '{entitySchema.TableName}' with ID '{pkValue}' because " +
+								$"{referencingRows.Count} record(s) in '{otherEntity.TableName}' reference it. " +
+								$"Delete the dependent records first or change the relationship to Cascade.");
+
+						case ForeignKeyAction.Cascade:
+							foreach (var rowIndex in referencingRows.OrderByDescending(x => x))
+								await Provider.DeleteRowAsync(otherEntity.TableName, rowIndex);
+							break;
+
+						case ForeignKeyAction.SetNull:
+							if (!fkColumn.IsNullable)
 								throw new InvalidOperationException(
-									$"Cannot delete '{entitySchema.TableName}' with ID '{pkValue}' because " +
-									$"{referencingRows.Count} record(s) in '{otherEntity.TableName}' reference it. " +
-									$"Delete the dependent records first or change the relationship to use Cascade delete.");
+									$"Cannot set FK '{fkColumn.PropertyName}' to NULL because it's not nullable.");
+							foreach (var rowIndex in referencingRows)
+								await Provider.UpdateValueAsync(otherEntity.TableName, GetCellAddress(fkColumnIndex, rowIndex), "");
+							break;
 
-							case ForeignKeyAction.Cascade:
-								// Delete referencing rows (in reverse order to maintain indices)
-								foreach (var rowIndex in referencingRows.OrderByDescending(x => x))
-								{
-									await provider.DeleteRowAsync(otherEntity.TableName, rowIndex);
-								}
-								break;
-
-							case ForeignKeyAction.SetNull:
-								// Set FK to null (only if column is nullable)
-								if (fkColumn.IsNullable)
-								{
-									foreach (var rowIndex in referencingRows)
-									{
-										var cellAddress = GetCellAddress(fkColumnIndex, rowIndex);
-										await provider.UpdateValueAsync(otherEntity.TableName, cellAddress, null);
-									}
-								}
-								else
-								{
-									throw new InvalidOperationException(
-										$"Cannot set FK '{fkColumn.PropertyName}' to NULL because it's not nullable.");
-								}
-								break;
-
-							case ForeignKeyAction.SetDefault:
-								// Set FK to default value
-								if (fkColumn.DefaultValue != null)
-								{
-									foreach (var rowIndex in referencingRows)
-									{
-										var cellAddress = GetCellAddress(fkColumnIndex, rowIndex);
-										await provider.UpdateValueAsync(otherEntity.TableName, cellAddress, fkColumn.DefaultValue);
-									}
-								}
-								break;
-						}
+						case ForeignKeyAction.SetDefault:
+							if (fkColumn.DefaultValue != null)
+								foreach (var rowIndex in referencingRows)
+									await Provider.UpdateValueAsync(otherEntity.TableName, GetCellAddress(fkColumnIndex, rowIndex), fkColumn.DefaultValue);
+							break;
 					}
 				}
 			}
 		}
 	}
 
-	private string GetCellAddress(int columnIndex, int rowIndex)
+	private static string GetCellAddress(int columnIndex, int rowIndex)
 	{
-		// Convert column index to A1 notation (0 -> A, 1 -> B, etc.)
 		string column = "";
 		int col = columnIndex;
 		while (col >= 0)
@@ -427,9 +450,7 @@ public abstract class SheetsContext : IDisposable
 	protected virtual void Dispose(bool disposing)
 	{
 		if (disposing)
-		{
-			provider?.Dispose();
-		}
+			Provider?.Dispose();
 	}
 
 	~SheetsContext()

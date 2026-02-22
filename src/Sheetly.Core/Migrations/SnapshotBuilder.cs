@@ -31,7 +31,13 @@ public static class SnapshotBuilder
 		foreach (var set in sets)
 		{
 			var entityType = set.PropertyType.GetGenericArguments()[0];
-			var tableName = GetTableName(entityType);
+
+			// Get ModelBuilder configuration for this entity (if available)
+			EntityMetadata? entityMetadata = null;
+			modelMetadata?.TryGetValue(entityType, out entityMetadata);
+
+			var tableName = entityMetadata?.SheetName
+						 ?? GetTableName(entityType);
 
 			var schema = new EntitySchema
 			{
@@ -39,17 +45,13 @@ public static class SnapshotBuilder
 				ClassName = entityType.Name,
 				Namespace = entityType.Namespace ?? string.Empty
 			};
-			
-			// Get ModelBuilder configuration for this entity (if available)
-			EntityMetadata? entityMetadata = null;
-			modelMetadata?.TryGetValue(entityType, out entityMetadata);
 
 			var properties = entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
 
 			foreach (var prop in properties)
 			{
 				if (IsNavigationProperty(prop)) continue;
-				
+
 				// Get property configuration from ModelBuilder (if available)
 				PropertyBuilder? propConfig = null;
 				entityMetadata?.Properties.TryGetValue(prop.Name, out propConfig);
@@ -61,7 +63,7 @@ public static class SnapshotBuilder
 					DataType = GetSimpleTypeName(prop.PropertyType),
 					IsPrimaryKey = IsPrimaryKey(prop),
 					IsAutoIncrement = IsPrimaryKey(prop),  // EF Core: PKs are auto-increment by default
-					
+
 					// Combine attributes and ModelBuilder configuration
 					IsNullable = IsPropertyNullable(prop) && !prop.IsDefined(typeof(RequiredAttribute)) && !(propConfig?.IsRequiredValue ?? false),
 					IsRequired = prop.IsDefined(typeof(RequiredAttribute)) || (propConfig?.IsRequiredValue ?? false),
@@ -82,7 +84,10 @@ public static class SnapshotBuilder
 					if (navProp != null && IsNavigationProperty(navProp))
 					{
 						column.IsForeignKey = true;
-						column.ForeignKeyTable = GetTableName(navProp.PropertyType);
+						// Resolve FK table name using fluent API if available
+						EntityMetadata? relatedMetadata = null;
+						modelMetadata?.TryGetValue(navProp.PropertyType, out relatedMetadata);
+						column.ForeignKeyTable = relatedMetadata?.SheetName ?? GetTableName(navProp.PropertyType);
 					}
 				}
 
@@ -156,10 +161,34 @@ public static class SnapshotBuilder
 		return Nullable.GetUnderlyingType(prop.PropertyType) != null || !prop.PropertyType.IsValueType;
 	}
 
+	/// <summary>
+	/// Hash only structural fields — table/column names, data types, PK/FK relationships.
+	/// Validation-only constraints (MaxLength, MinValue, IsRequired, etc.) don't change
+	/// the Sheets schema, so they don't trigger a new migration.
+	/// </summary>
 	private static string CalculateHash(Dictionary<string, EntitySchema> entities)
 	{
+		var structural = entities
+			.OrderBy(e => e.Key)
+			.ToDictionary(
+				e => e.Key,
+				e => new
+				{
+					e.Value.TableName,
+					Columns = e.Value.Columns.Select(c => new
+					{
+						c.Name,
+						c.DataType,
+						c.IsPrimaryKey,
+						c.IsAutoIncrement,
+						c.IsForeignKey,
+						c.ForeignKeyTable,
+						c.ForeignKeyColumn
+					}).ToList()
+				});
+
 		var options = new JsonSerializerOptions { WriteIndented = false };
-		var json = JsonSerializer.Serialize(entities, options);
+		var json = JsonSerializer.Serialize(structural, options);
 		var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(json));
 		return Convert.ToBase64String(bytes);
 	}

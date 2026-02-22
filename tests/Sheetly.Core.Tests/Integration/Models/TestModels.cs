@@ -1,8 +1,10 @@
-﻿namespace Sheetly.Sample.Models;
+namespace Sheetly.Core.Tests.Integration.Models;
+
+// ── Domain models used across all integration tests ─────────────────────────
 
 public class Category
 {
-	public long Id { get; set; }
+	public int Id { get; set; }
 	public string Name { get; set; } = string.Empty;
 	public List<Product> Products { get; set; } = [];
 }
@@ -17,4 +19,10 @@ public class Product
 
 	public int CategoryId { get; set; }
 	public Category Category { get; set; } = default!;
+}
+
+public class Tag
+{
+	public int Id { get; set; }
+	public string Label { get; set; } = string.Empty;
 }

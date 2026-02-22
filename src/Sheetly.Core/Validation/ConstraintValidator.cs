@@ -19,6 +19,7 @@ public class ConstraintValidator
 		{
 			new NullabilityValidator(),
 			new MaxLengthValidator(),
+			new MinLengthValidator(),
 			new RangeValidator(),
 			new UniqueValidator(),
 			new PrimaryKeyValidator(),
@@ -93,11 +94,6 @@ public class ConstraintValidator
 
 	private static string GetTableName(Type entityType)
 	{
-		// Simple pluralization
-		var name = entityType.Name;
-		if (name.EndsWith("y")) return name[..^1] + "ies";
-		if (name.EndsWith("s") || name.EndsWith("x") || name.EndsWith("ch") || name.EndsWith("sh"))
-			return name + "es";
-		return name + "s";
+		return Mapping.EntityMapper.GetTableName(entityType);
 	}
 }

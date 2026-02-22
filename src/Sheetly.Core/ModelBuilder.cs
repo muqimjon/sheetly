@@ -22,5 +22,5 @@ public class ModelBuilder
 		return (EntityTypeBuilder<T>)value;
 	}
 
-	internal Dictionary<Type, EntityMetadata> GetMetadata() => builders;
+	public Dictionary<Type, EntityMetadata> GetMetadata() => builders;
 }

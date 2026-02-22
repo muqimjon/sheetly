@@ -42,7 +42,7 @@ public class ScaffoldCommand : Command
 			await task;
 			var context = (SheetsContext)((dynamic)task).Result;
 
-			var rows = await context.provider.GetAllRowsAsync("__SheetlyHistory__");
+			var rows = await context.Provider.GetAllRowsAsync("__SheetlyHistory__");
 			if (rows.Count <= 1) throw new Exception("Migratsiya tarixi topilmadi.");
 
 			var snapshotJson = rows.Last()[2].ToString()!;

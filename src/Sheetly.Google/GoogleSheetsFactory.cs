@@ -1,4 +1,4 @@
-﻿using Sheetly.Core;
+using Sheetly.Core;
 using Sheetly.Core.Configuration;
 
 namespace Sheetly.Google;
@@ -11,8 +11,9 @@ public static class GoogleSheetsFactory
 		connString.Validate();
 
 		var provider = new GoogleSheetProvider(connString.CredentialsPath, connString.SpreadsheetId);
+		var migrationService = new GoogleMigrationService(provider);
 		var context = new T();
-		await context.InitializeAsync(provider);
+		await context.InitializeAsync(provider, migrationService);
 
 		return context;
 	}

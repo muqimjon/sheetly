@@ -22,32 +22,32 @@ public class PropertyBuilder(string name)
 		IsRequiredValue = required;
 		return this;
 	}
-	
+
 	public PropertyBuilder IsRequired()
 	{
 		IsRequiredValue = true;
 		return this;
 	}
-	
+
 	public PropertyBuilder HasMaxLength(int maxLength)
 	{
 		MaxLength = maxLength;
 		return this;
 	}
-	
+
 	public PropertyBuilder HasMinLength(int minLength)
 	{
 		MinLength = minLength;
 		return this;
 	}
-	
+
 	public PropertyBuilder HasRange(decimal min, decimal max)
 	{
 		MinValue = min;
 		MaxValue = max;
 		return this;
 	}
-	
+
 	public PropertyBuilder HasDefaultValue(object value)
 	{
 		DefaultValue = value;

@@ -1,25 +1,12 @@
 namespace Sheetly.Core.Validation.Rules;
 
 /// <summary>
-/// Validates foreign key references.
+/// Validates foreign key references using schema metadata.
+/// Checks that FK values reference valid entities in tracked entities.
+/// Remote validation (against actual sheet data) is handled in SheetsContext.SaveChangesAsync.
 /// </summary>
 public class ForeignKeyValidator : IValidationRule
 {
-	private readonly Dictionary<string, HashSet<object>> _relatedEntityIds;
-
-	public ForeignKeyValidator()
-	{
-		_relatedEntityIds = new Dictionary<string, HashSet<object>>();
-	}
-
-	/// <summary>
-	/// Registers IDs from a related table for FK validation.
-	/// </summary>
-	public void RegisterRelatedIds(string tableName, IEnumerable<object> ids)
-	{
-		_relatedEntityIds[tableName] = new HashSet<object>(ids);
-	}
-
 	public ValidationResult Validate(object entity, ValidationContext context)
 	{
 		var result = new ValidationResult();
@@ -51,39 +38,55 @@ public class ForeignKeyValidator : IValidationRule
 				continue;
 			}
 
-			// Check if related table IDs are registered
-			if (_relatedEntityIds.TryGetValue(column.ForeignKeyTable, out var relatedIds))
+			// Skip zero/default values for value types (will be set on save)
+			if (IsDefaultValue(value, property.PropertyType)) continue;
+
+			// Check against tracked entities using schema-based PK resolution
+			if (context.AllSchemas.TryGetValue(column.ForeignKeyTable, out var referencedSchema))
 			{
-				if (!relatedIds.Contains(value))
+				var referencedPkColumn = referencedSchema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
+				if (referencedPkColumn != null)
 				{
-					result.AddError(new ValidationError(column.PropertyName,
-						$"Foreign key violation: No '{column.ForeignKeyTable}' entity found with ID '{value}'.")
+					var found = false;
+					foreach (var tracked in context.TrackedEntities)
 					{
-						EntityType = entityType.Name
-					});
-				}
-			}
+						if (tracked.GetType().Name != referencedSchema.ClassName) continue;
 
-			// Also check in tracked entities
-			foreach (var tracked in context.TrackedEntities)
-			{
-				var trackedType = tracked.GetType();
-				var tableName = trackedType.Name + "s"; // Simple pluralization
+						var pkProp = tracked.GetType().GetProperty(referencedPkColumn.PropertyName);
+						if (pkProp == null) continue;
 
-				if (!tableName.Equals(column.ForeignKeyTable, StringComparison.OrdinalIgnoreCase)) continue;
+						var pkValue = pkProp.GetValue(tracked);
+						if (Equals(value, pkValue))
+						{
+							found = true;
+							break;
+						}
+					}
 
-				var pkProp = trackedType.GetProperty("Id");
-				if (pkProp == null) continue;
-
-				var pkValue = pkProp.GetValue(tracked);
-				if (Equals(value, pkValue))
-				{
-					// Found matching tracked entity, FK is valid
-					return result;
+					// Only error if tracked entities of this type exist but none match
+					// Remote check happens later in SaveChangesAsync
+					if (!found && context.TrackedEntities.Any(e => e.GetType().Name == referencedSchema.ClassName))
+					{
+						result.AddError(new ValidationError(column.PropertyName,
+							$"Foreign key violation: No tracked '{column.ForeignKeyTable}' entity found with {referencedPkColumn.PropertyName} = '{value}'.")
+						{
+							EntityType = entityType.Name
+						});
+					}
 				}
 			}
 		}
 
 		return result;
+	}
+
+	private static bool IsDefaultValue(object value, Type type)
+	{
+		var underlying = Nullable.GetUnderlyingType(type) ?? type;
+		if (underlying == typeof(int)) return (int)value == 0;
+		if (underlying == typeof(long)) return (long)value == 0;
+		if (underlying == typeof(short)) return (short)value == 0;
+		if (underlying == typeof(Guid)) return (Guid)value == Guid.Empty;
+		return false;
 	}
 }

@@ -58,8 +58,8 @@ public class AddCommand : Command
 			var onModelCreatingMethod = contextType.GetMethod("OnModelCreating", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
 			onModelCreatingMethod?.Invoke(context, [modelBuilder]);
 
-			// Build current snapshot
-			var currentSnapshot = SnapshotBuilder.BuildFromContext(contextType);
+			// Build current snapshot — must include fluent API metadata to match SheetsContext.InitializeAsync
+			var currentSnapshot = SnapshotBuilder.BuildFromContext(contextType, modelBuilder.GetMetadata());
 
 			// Load previous snapshot from C# ModelSnapshot class (EF Core style)
 			string finalPath = Path.Combine(contextProjectDir, outputDir);
@@ -83,6 +83,18 @@ public class AddCommand : Command
 			if (operations.Count == 0)
 			{
 				Console.WriteLine("⚠️ No changes detected in the model.");
+				return;
+			}
+
+
+			// Check for duplicate migration name (same class name, different timestamp)
+			var existingMigration = Directory.GetFiles(finalPath, "*.cs")
+				.Where(f => !f.Contains("ModelSnapshot"))
+				.FirstOrDefault(f => Path.GetFileNameWithoutExtension(f).EndsWith($"_{name}", StringComparison.OrdinalIgnoreCase));
+
+			if (existingMigration != null)
+			{
+				Console.WriteLine($"❌ A migration named '{name}' already exists: '{Path.GetFileName(existingMigration)}'");
 				return;
 			}
 

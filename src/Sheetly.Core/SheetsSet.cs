@@ -1,5 +1,4 @@
 ﻿using Sheetly.Core.Abstractions;
-using Sheetly.Core.Infrastructure;
 using Sheetly.Core.Mapping;
 using Sheetly.Core.Migration;
 using System.Collections;
@@ -28,36 +27,17 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		return this;
 	}
 
-	public void Add(T entity)
-	{
-		_trackedEntities[entity] = EntityState.Added;
-	}
+	public void Add(T entity) => _trackedEntities[entity] = EntityState.Added;
 
-	/// <summary>
-	/// Gets all pending entities that will be saved.
-	/// Used for validation before SaveChanges.
-	/// </summary>
-	internal IEnumerable<object> GetPendingEntities()
-	{
-		return _trackedEntities
-			.Where(x => x.Value == EntityState.Added || x.Value == EntityState.Modified)
-			.Select(x => (object)x.Key);
-	}
+	internal IEnumerable<object> GetPendingEntities() =>
+		_trackedEntities.Where(x => x.Value is EntityState.Added or EntityState.Modified).Select(x => (object)x.Key);
 
-	public void Update(T entity)
-	{
-		// Mark entity as Modified (EF Core style)
-		_trackedEntities[entity] = EntityState.Modified;
-	}
+	public void Update(T entity) => _trackedEntities[entity] = EntityState.Modified;
 
 	public void Remove(T entity) => _trackedEntities[entity] = EntityState.Deleted;
 
-	internal IEnumerable<object> GetDeletedEntities()
-	{
-		return _trackedEntities
-			.Where(x => x.Value == EntityState.Deleted)
-			.Select(x => (object)x.Key);
-	}
+	internal IEnumerable<object> GetDeletedEntities() =>
+		_trackedEntities.Where(x => x.Value == EntityState.Deleted).Select(x => (object)x.Key);
 
 	public async Task<List<T>> ToListAsync()
 	{
@@ -71,24 +51,76 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		{
 			var entity = EntityMapper.MapFromRow<T>(rows[i], headers, schema);
 			result.Add(entity);
-			
-			// Track entities as Unchanged (EF Core style)
-			if (!_trackedEntities.ContainsKey(entity))
+
+			if (!_asNoTracking && !_trackedEntities.ContainsKey(entity))
 			{
 				_trackedEntities[entity] = EntityState.Unchanged;
-				_entityRowIndexes[entity] = i + 1; // Google Sheets A1 notation (row 1 = header, row 2 = first data)
+				_entityRowIndexes[entity] = i + 1; // A1 notation: row 1=header, row 2=first data
 			}
 		}
-		
-		// Process includes if any
+
 		if (_includes.Any())
-		{
 			await ProcessIncludes(result);
-		}
 
 		_asNoTracking = false;
 		_includes.Clear();
 		return result;
+	}
+
+	/// <summary>
+	/// Filters entities in memory after loading all data from the sheet.
+	/// </summary>
+	public async Task<List<T>> Where(Func<T, bool> predicate)
+	{
+		var all = await ToListAsync();
+		return all.Where(predicate).ToList();
+	}
+
+	/// <summary>
+	/// Returns the first entity matching the predicate, or default if none found.
+	/// </summary>
+	public async Task<T?> FirstOrDefaultAsync(Func<T, bool>? predicate = null)
+	{
+		var all = await ToListAsync();
+		return predicate != null ? all.FirstOrDefault(predicate) : all.FirstOrDefault();
+	}
+
+	/// <summary>
+	/// Finds an entity by its primary key value.
+	/// </summary>
+	public async Task<T?> FindAsync(object keyValue)
+	{
+		var pkColumn = schema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
+		if (pkColumn == null) return default;
+
+		var all = await ToListAsync();
+		var pkProp = typeof(T).GetProperty(pkColumn.PropertyName);
+		if (pkProp == null) return default;
+
+		return all.FirstOrDefault(e =>
+		{
+			var val = pkProp.GetValue(e);
+			if (val == null) return false;
+			return val.ToString() == keyValue.ToString();
+		});
+	}
+
+	/// <summary>
+	/// Returns the count of entities in the sheet.
+	/// </summary>
+	public async Task<int> CountAsync(Func<T, bool>? predicate = null)
+	{
+		var all = await ToListAsync();
+		return predicate != null ? all.Count(predicate) : all.Count;
+	}
+
+	/// <summary>
+	/// Returns whether any entity matches the predicate.
+	/// </summary>
+	public async Task<bool> AnyAsync(Func<T, bool>? predicate = null)
+	{
+		var all = await ToListAsync();
+		return predicate != null ? all.Any(predicate) : all.Any();
 	}
 
 	private async Task ProcessIncludes(List<T> entities)
@@ -104,14 +136,23 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 			var targetType = isCollection ? (prop.PropertyType.IsGenericType ? prop.PropertyType.GetGenericArguments()[0] : typeof(object)) : prop.PropertyType;
 
 			var relatedTableName = EntityMapper.GetTableName(targetType);
-			if (!allSchemas.TryGetValue(relatedTableName, out var relatedSchema)) continue;
-
-			if (!loadedTables.TryGetValue(relatedTableName, out List<object>? value))
+			EntitySchema? relatedSchema;
+			if (!allSchemas.TryGetValue(relatedTableName, out relatedSchema))
 			{
-				var relatedRows = await provider.GetAllRowsAsync(relatedTableName);
+				// Fallback: match by ClassName when table name uses a different convention
+				// (e.g. fluent API HasSheetName("Products") vs. EntityMapper returning "Product")
+				relatedSchema = allSchemas.Values.FirstOrDefault(s => s.ClassName == targetType.Name);
+				if (relatedSchema == null) continue;
+			}
+			// Always use the schema's actual table name for provider calls
+			var actualTableName = relatedSchema.TableName;
+
+			if (!loadedTables.TryGetValue(actualTableName, out List<object>? value))
+			{
+				var relatedRows = await provider.GetAllRowsAsync(actualTableName);
 				if (relatedRows.Count <= 1)
 				{
-					loadedTables[relatedTableName] = new List<object>();
+					loadedTables[actualTableName] = new List<object>();
 					continue;
 				}
 
@@ -126,7 +167,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 				}
 
 				value = relatedEntities;
-				loadedTables[relatedTableName] = value;
+				loadedTables[actualTableName] = value;
 			}
 
 			MapRelations(entities, value, prop, isCollection, relatedSchema, targetType);
@@ -178,20 +219,9 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		}
 	}
 
-	private static void ValidateEntity(T entity)
-	{
-		ValidationService.Validate(entity);
-	}
-
 	internal async Task<int> SaveChangesInternalAsync()
 	{
 		int changes = 0;
-
-		var toProcess = _trackedEntities.ToList();
-		foreach (var entry in toProcess)
-		{
-			ValidateEntity(entry.Key);
-		}
 
 		var toDelete = _trackedEntities.Where(x => x.Value == EntityState.Deleted).ToList();
 		foreach (var item in toDelete.OrderByDescending(x => _entityRowIndexes.GetValueOrDefault(x.Key)))
@@ -245,16 +275,16 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		int schemaIdValue = 0; // Value from __SheetlySchema__
 		var pkPropertyName = schema.Columns.First(c => c.IsPrimaryKey).PropertyName;
 
-		// Read CurrentIdValue from __SheetlySchema__ (Column 28)
 		int schemaRowIndex = -1;
 		for (int i = 1; i < rows.Count; i++)
 		{
-			if (rows[i].Count > 1 &&
-				rows[i][0]?.ToString() == tableName &&
-				rows[i][1]?.ToString() == pkPropertyName)
+			if (rows[i].Count > 2 &&
+				rows[i][1]?.ToString() == tableName &&
+				rows[i][2]?.ToString() == pkPropertyName)
 			{
 				schemaRowIndex = i;
-				_ = int.TryParse(rows[i][28]?.ToString(), out schemaIdValue);
+				if (rows[i].Count > 28)
+					_ = int.TryParse(rows[i][28]?.ToString(), out schemaIdValue);
 				break;
 			}
 		}
