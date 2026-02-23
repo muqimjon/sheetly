@@ -1,13 +1,13 @@
-<div align="center">
-  <img src="https://raw.githubusercontent.com/muqimjon/sheetly/main/icon.png" alt="Sheetly Logo" width="128" />
+<p align="center">
+  <img src="assets/banner.svg" width="100%" alt="Sheetly Banner" />
+</p>
 
-  # Sheetly
-
-  **Entity Framework Core for Google Sheets** — The familiar ORM experience you love, now for spreadsheets.
-
-  [![NuGet](https://img.shields.io/nuget/v/Sheetly.Core.svg)](https://www.nuget.org/packages/Sheetly.Core/)
-  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-</div>
+<p align="center">
+  <a href="https://www.nuget.org/packages/Sheetly.Core/"><img src="https://img.shields.io/nuget/v/Sheetly.Core.svg?label=Sheetly.Core&color=2f7f73" /></a>
+  <a href="https://www.nuget.org/packages/Sheetly.Google/"><img src="https://img.shields.io/nuget/v/Sheetly.Google.svg?label=Sheetly.Google&color=2f7f73" /></a>
+  <a href="https://www.nuget.org/packages/dotnet-sheetly/"><img src="https://img.shields.io/nuget/v/dotnet-sheetly.svg?label=dotnet-sheetly&color=2f7f73" /></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" /></a>
+</p>
 
 ---
 
