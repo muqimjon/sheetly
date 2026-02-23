@@ -16,6 +16,7 @@ public static class GoogleSheetsOptionsExtensions
 
 	public static SheetsOptions UseGoogleSheets(this SheetsOptions options, string credentialsPath, string spreadsheetId)
 	{
+		options.ConnectionString = $"Provider=GoogleSheets;CredentialsPath={credentialsPath};SpreadsheetId={spreadsheetId}";
 		var provider = new GoogleSheetProvider(credentialsPath, spreadsheetId);
 		options.Provider = provider;
 		options.MigrationService = new GoogleMigrationService(provider);

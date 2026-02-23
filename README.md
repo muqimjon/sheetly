@@ -1,9 +1,13 @@
-# Sheetly 🚀
+<div align="center">
+  <img src="https://raw.githubusercontent.com/muqimjon/sheetly/main/icon.png" alt="Sheetly Logo" width="128" />
 
-**Entity Framework Core for Google Sheets** — The familiar ORM experience you love, now for spreadsheets.
+  # Sheetly
 
-[![NuGet](https://img.shields.io/nuget/v/Sheetly.Core.svg)](https://www.nuget.org/packages/Sheetly.Core/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+  **Entity Framework Core for Google Sheets** — The familiar ORM experience you love, now for spreadsheets.
+
+  [![NuGet](https://img.shields.io/nuget/v/Sheetly.Core.svg)](https://www.nuget.org/packages/Sheetly.Core/)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+</div>
 
 ---
 

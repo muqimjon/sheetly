@@ -37,7 +37,8 @@ public class DropCommand : Command
 			var contextType = assembly.GetExportedTypes().FirstOrDefault(t => CliHelper.IsSubclassOfSheetsContext(t))
 				?? throw new Exception("SheetsContext not found.");
 
-			string? connStr = CliHelper.GetConnectionString(CliHelper.FindProjectRootFromDll(dllPath));
+			string? connStr = CliHelper.GetConnectionString(CliHelper.FindProjectRootFromDll(dllPath))
+				?? CliHelper.GetConnectionStringFromContext(contextType);
 
 			var method = typeof(GoogleSheetsFactory).GetMethods()
 				.FirstOrDefault(m => m.Name == "CreateContextAsync" && m.GetParameters().Length == 1)

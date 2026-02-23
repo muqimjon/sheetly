@@ -38,7 +38,9 @@ public class UpdateCommand : Command
 			?? throw new Exception("SheetsContext not found.");
 
 			string contextProjectDir = CliHelper.FindProjectRootFromDll(contextType.Assembly.Location);
-			string? connStr = CliHelper.GetConnectionString(contextProjectDir) ?? throw new Exception("ConnectionString not found.");
+			string? connStr = CliHelper.GetConnectionString(contextProjectDir)
+				?? CliHelper.GetConnectionStringFromContext(contextType)
+				?? throw new Exception("ConnectionString not found. Configure OnConfiguring() or add appsettings.json.");
 
 			// Create provider directly — bypassing full context init so migration checks don't run
 			Console.WriteLine("⏳ Connecting to Google Sheets...");
