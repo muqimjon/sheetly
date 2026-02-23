@@ -2,27 +2,12 @@ using Sheetly.Core.Migration;
 
 namespace Sheetly.Core.Migrations.Operations;
 
-/// <summary>
-/// Operation to add a column to an existing table.
-/// Enhanced with full EF Core-like constraint support.
-/// </summary>
 public class AddColumnOperation : MigrationOperation
 {
 	public override string OperationType => "AddColumn";
 
-	/// <summary>
-	/// Gets or sets the name of the table.
-	/// </summary>
 	public string Table { get; set; } = string.Empty;
-
-	/// <summary>
-	/// Gets or sets the name of the column.
-	/// </summary>
 	public string Name { get; set; } = string.Empty;
-
-	/// <summary>
-	/// Gets or sets the CLR type of the column.
-	/// </summary>
 	public Type ClrType { get; set; } = typeof(string);
 
 	// Nullability

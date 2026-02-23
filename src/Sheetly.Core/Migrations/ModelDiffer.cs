@@ -3,18 +3,8 @@ using Sheetly.Core.Migrations.Operations;
 
 namespace Sheetly.Core.Migrations;
 
-/// <summary>
-/// Compares two snapshots and generates migration operations.
-/// Similar to Entity Framework's model differ.
-/// </summary>
 public class ModelDiffer
 {
-	/// <summary>
-	/// Gets the differences between two snapshots.
-	/// </summary>
-	/// <param name="previous">The previous snapshot (null for initial migration).</param>
-	/// <param name="current">The current snapshot.</param>
-	/// <returns>List of operations needed to migrate from previous to current.</returns>
 	public List<MigrationOperation> GetDifferences(MigrationSnapshot? previous, MigrationSnapshot current)
 	{
 		var operations = new List<MigrationOperation>();

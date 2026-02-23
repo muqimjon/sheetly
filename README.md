@@ -1,6 +1,6 @@
 # Sheetly 🚀
 
-**Entity Framework Core for Google Sheets** - The familiar ORM experience you love, now for spreadsheets.
+**Entity Framework Core for Google Sheets** — The familiar ORM experience you love, now for spreadsheets.
 
 [![NuGet](https://img.shields.io/nuget/v/Sheetly.Core.svg)](https://www.nuget.org/packages/Sheetly.Core/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -12,7 +12,6 @@
 Sheetly brings the **Entity Framework Core developer experience** to Google Sheets. If you know EF Core, you already know Sheetly.
 
 ```csharp
-// Define models with familiar attributes
 public class Product 
 {
     public int Id { get; set; }
@@ -26,8 +25,7 @@ public class Product
     public Category Category { get; set; }
 }
 
-// Create your context
-public class InventoryContext : SheetsContext
+public class AppContext : SheetsContext
 {
     public SheetsSet<Product> Products { get; set; }
     public SheetsSet<Category> Categories { get; set; }
@@ -41,29 +39,22 @@ public class InventoryContext : SheetsContext
     {
         modelBuilder.Entity<Product>(entity =>
         {
-            entity.Property(p => p.Id).IsPrimaryKey().IsAutoIncrement();
+            entity.HasSheetName("Products");
             entity.Property(p => p.Name).HasMaxLength(100);
             entity.Property(p => p.Price).IsRequired();
-            entity.Property(p => p.CategoryId).IsRequired().IsForeignKey("Categories");
-        });
-        
-        modelBuilder.Entity<Category>(entity =>
-        {
-            entity.Property(c => c.Id).IsPrimaryKey().IsAutoIncrement();
         });
     }
 }
 
 // Use it like EF Core
-await using var context = new InventoryContext();
+await using var context = new AppContext();
 await context.InitializeAsync();
 
-var product = new Product { Name = "Laptop", Price = 1200 };
-context.Products.Add(product);
+context.Products.Add(new Product { Name = "Laptop", Price = 1200 });
 await context.SaveChangesAsync();
 
 var products = await context.Products
-    .Include(p => p.Category)
+    .Include("Category")
     .ToListAsync();
 ```
 
@@ -71,42 +62,38 @@ var products = await context.Products
 
 ## ✨ Key Features
 
-### 🎯 **100% EF Core-Style API**
-- `SheetsContext` and `SheetsSet<T>` - familiar patterns
+### 🎯 **EF Core-Style API**
+- `SheetsContext` and `SheetsSet<T>` — familiar patterns
 - `Add()`, `Update()`, `Remove()`, `SaveChangesAsync()`
 - `Include()` for eager loading
 - `AsNoTracking()` for read-only queries
+- `FindAsync()`, `FirstOrDefaultAsync()`, `Where()`, `CountAsync()`, `AnyAsync()`
 
 ### 🔄 **Code-First Migrations**
-- C# migration files (not JSON!)
-- Automatic change detection
-- Up/Down methods for rollback
+- C# migration files with Up/Down methods
+- Automatic model change detection
 - Migration history tracking
-- Schema synchronization checks
+- Schema synchronization checks at startup
 
 ```bash
 dotnet sheetly migrations add InitialCreate
 dotnet sheetly database update
 ```
 
-### ✅ **Full Constraint Support**
-- Primary Keys (IsPrimaryKey, IsAutoIncrement)
-- Foreign Keys (IsForeignKey)
-- Required/Nullable fields (IsRequired, IsNullable)
-- Max/Min Length validation (HasMaxLength, HasMinLength)
-- Unique constraints (IsUnique)
-- Default values (HasDefaultValue)
-- Column mapping (HasColumnName)
+### ✅ **Constraint Validation**
+- Primary Keys (auto-detected, auto-increment)
+- Foreign Keys (auto-detected from navigation properties)
+- Required/Nullable (`IsRequired()`)
+- Max/Min Length (`HasMaxLength()`, `HasMinLength()`)
+- Range validation (`HasRange()`)
+- Default values (`HasDefaultValue()`)
+- Column mapping (`HasColumnName()`)
+- Local validation before API calls
 
 ### 🛡️ **Schema Tracking**
-- **__SheetlySchema__** sheet stores all metadata
-  - ClassName, TableName, PropertyName
-  - DataType, IsNullable, IsRequired
-  - IsPrimaryKey, IsForeignKey, IsUnique
-  - IsAutoIncrement, CurrentIdValue
-  - MaxLength, DefaultValue, etc.
-- **__SheetlyMigrationsHistory__** tracks applied migrations
-- Local validation before Google Sheets API calls
+- Hidden **\_\_SheetlySchema\_\_** sheet stores all metadata
+- Hidden **\_\_SheetlyMigrationsHistory\_\_** tracks applied migrations
+- Automatic retry with exponential backoff on rate limits
 
 ### 🧰 **Professional CLI**
 ```bash
@@ -117,19 +104,28 @@ dotnet sheetly migrations list
 dotnet sheetly migrations remove
 dotnet sheetly database update
 dotnet sheetly database drop
-dotnet sheetly dbcontext scaffold
+dotnet sheetly scaffold
 ```
 
 ---
 
-## 📦 Installation
+## 📦 Packages
+
+| Package | Description |
+|---|---|
+| [`Sheetly.Core`](https://www.nuget.org/packages/Sheetly.Core/) | Core abstractions, migrations, validation |
+| [`Sheetly.Google`](https://www.nuget.org/packages/Sheetly.Google/) | Google Sheets API provider |
+| [`dotnet-sheetly`](https://www.nuget.org/packages/dotnet-sheetly/) | CLI tool for migrations |
+| [`Sheetly.DependencyInjection`](https://www.nuget.org/packages/Sheetly.DependencyInjection/) | ASP.NET Core DI integration |
 
 ```bash
-# Install core packages
 dotnet add package Sheetly.Core
 dotnet add package Sheetly.Google
 
-# Install CLI tool globally
+# For ASP.NET Core apps
+dotnet add package Sheetly.DependencyInjection
+
+# CLI tool
 dotnet tool install -g dotnet-sheetly
 ```
 
@@ -141,7 +137,7 @@ dotnet tool install -g dotnet-sheetly
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a new project
-3. Enable Google Sheets API
+3. Enable **Google Sheets API**
 4. Create credentials (Service Account)
 5. Download `credentials.json`
 6. Share your spreadsheet with the service account email
@@ -149,31 +145,32 @@ dotnet tool install -g dotnet-sheetly
 ### 2. **Create Your Models**
 
 ```csharp
+public class Category
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public List<Product> Products { get; set; } = [];
+}
+
 public class Product 
 {
     public int Id { get; set; }
     public string Title { get; set; } = string.Empty;
     public decimal Price { get; set; }
     public string? Description { get; set; }
-    public int Stock { get; set; }
     
-    // Navigation properties
     public int CategoryId { get; set; }
     public Category Category { get; set; }
 }
-
-public class Category
-{
-    public long Id { get; set; }
-    public string Name { get; set; } = string.Empty;
-    public List<Product> Products { get; set; } = [];
-}
 ```
+
+Primary keys (`Id`) and foreign keys (`CategoryId` → `Category`) are **auto-detected** by convention.
 
 ### 3. **Create Your Context**
 
 ```csharp
 using Sheetly.Core;
+using Sheetly.Google;
 
 public class MyAppContext : SheetsContext
 {
@@ -182,79 +179,35 @@ public class MyAppContext : SheetsContext
 
     protected override void OnConfiguring(SheetsOptions options)
     {
-        options.UseGoogleSheets(
-            credentialsPath: "credentials.json",
-            spreadsheetId: "your-spreadsheet-id-here"
-        );
+        options.UseGoogleSheets("credentials.json", "your-spreadsheet-id");
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        // Fluent API configuration
         modelBuilder.Entity<Product>(entity =>
         {
-            entity.Property(p => p.Id).IsPrimaryKey().IsAutoIncrement();
-            entity.Property(p => p.Title).HasMaxLength(200);
+            entity.HasSheetName("Products");
+            entity.Property(p => p.Title).HasMaxLength(200).IsRequired();
             entity.Property(p => p.Price).IsRequired();
-            entity.Property(p => p.CategoryId).IsRequired().IsForeignKey("Categories");
         });
             
         modelBuilder.Entity<Category>(entity =>
         {
-            entity.ToTable("Categories");
-            entity.Property(c => c.Id).IsPrimaryKey().IsAutoIncrement();
+            entity.HasSheetName("Categories");
             entity.Property(c => c.Name).HasMaxLength(100);
         });
     }
 }
 ```
 
-### 4. **Create Migration**
+### 4. **Create & Apply Migration**
 
 ```bash
 dotnet sheetly migrations add InitialCreate
-```
-
-This generates a C# migration file:
-
-```csharp
-[Migration("20260221120000_InitialCreate")]
-public partial class InitialCreate : Migration
-{
-    public override void Up(MigrationBuilder builder)
-    {
-        // ClassName: Category
-        builder.CreateTable("Categories", table => table
-            .Column<long>("Id", c => c.IsPrimaryKey().IsUnique())
-            .Column<string>("Name")
-        );
-
-        // ClassName: Product
-        builder.CreateTable("Products", table => table
-            .Column<int>("Id", c => c.IsPrimaryKey().IsUnique())
-            .Column<string>("Title")
-            .Column<decimal>("Price", c => c.IsRequired())
-            .Column<string>("Description")
-            .Column<int>("Stock", c => c.IsRequired())
-            .Column<int>("CategoryId", c => c.IsRequired().IsForeignKey("Categories"))
-        );
-    }
-
-    public override void Down(MigrationBuilder builder)
-    {
-        builder.DropTable("Products");
-        builder.DropTable("Categories");
-    }
-}
-```
-
-### 5. **Apply Migration**
-
-```bash
 dotnet sheetly database update
 ```
 
-### 6. **Use Your Context**
+### 5. **Use Your Context**
 
 ```csharp
 await using var context = new MyAppContext();
@@ -269,21 +222,16 @@ var product = new Product
 { 
     Title = "Laptop", 
     Price = 1200,
-    Stock = 10,
     CategoryId = category.Id
 };
 context.Products.Add(product);
 await context.SaveChangesAsync();
 
 // Query with Include
-var products = await context.Products
-    .Include(p => p.Category)
-    .ToListAsync();
+var products = await context.Products.Include("Category").ToListAsync();
 
 foreach (var p in products)
-{
-    Console.WriteLine($"{p.Title} - ${p.Price} (Stock: {p.Stock}) - {p.Category.Name}");
-}
+    Console.WriteLine($"{p.Title} - ${p.Price} - {p.Category.Name}");
 
 // Update
 product.Price = 1100;
@@ -299,102 +247,51 @@ await context.SaveChangesAsync();
 
 ## 🎓 Advanced Features
 
-### **Fluent API**
+### **Fluent API Configuration**
 
 ```csharp
 protected override void OnModelCreating(ModelBuilder modelBuilder)
 {
     modelBuilder.Entity<Product>(entity =>
     {
-        entity.ToTable("Products");
-        entity.Property(p => p.Id).IsPrimaryKey().IsAutoIncrement();
+        entity.HasSheetName("Products");
         
         entity.Property(p => p.Title)
             .HasMaxLength(200)
+            .HasMinLength(2)
             .HasColumnName("Product_Title");
             
         entity.Property(p => p.Price)
             .IsRequired()
-            .HasColumnName("Market_Price");
+            .HasRange(0, 999999);
             
-        entity.Property(p => p.CategoryId)
-            .IsRequired()
-            .IsForeignKey("Categories");
+        entity.Property(p => p.Stock)
+            .HasDefaultValue(0);
     });
 }
 ```
 
-### **AsNoTracking for Performance**
+### **ASP.NET Core Integration**
 
 ```csharp
-// Read-only query - no change tracking
-var products = await context.Products
-    .AsNoTracking()
-    .ToListAsync();
+builder.Services.AddSheetsContext<MyAppContext>(options =>
+    options.UseGoogleSheets("credentials.json", "spreadsheet-id"));
 ```
 
-### **Validation Before Save**
-
-Sheetly validates constraints locally before hitting Google Sheets API:
+### **AsNoTracking**
 
 ```csharp
-try 
-{
-    var product = new Product 
-    { 
-        Title = "Test",
-        Price = 100,
-        Stock = -5  // Invalid: negative stock
-    };
-    context.Products.Add(product);
-    await context.SaveChangesAsync();  // Will validate before API call
-}
-catch (Exception ex)
-{
-    Console.WriteLine($"Validation error: {ex.Message}");
-}
+var products = await context.Products.AsNoTracking().ToListAsync();
 ```
 
-### **Incremental Migrations**
+### **Queries**
 
 ```csharp
-// Add a new property to Product model
-public class Product 
-{
-    public int Id { get; set; }
-    public string Title { get; set; } = string.Empty;
-    public decimal Price { get; set; }
-    public string? Description { get; set; }
-    public int Stock { get; set; }  // NEW!
-    public int CategoryId { get; set; }
-    public Category Category { get; set; }
-}
-```
-
-```bash
-# Generate migration for the change
-dotnet sheetly migrations add AddStockToProduct
-
-# This creates:
-# - Migration file with AddColumn operation
-# - Updated snapshot with new schema
-```
-
-Generated migration:
-```csharp
-[Migration("20260221213405_AddStockToProduct")]
-public partial class AddStockToProduct : Migration
-{
-    public override void Up(MigrationBuilder builder)
-    {
-        builder.AddColumn<int>("Products", "Stock", c => c.IsRequired());
-    }
-
-    public override void Down(MigrationBuilder builder)
-    {
-        builder.DropColumn("Products", "Stock");
-    }
-}
+var product = await context.Products.FindAsync(1);
+var first = await context.Products.FirstOrDefaultAsync(p => p.Price > 100);
+var filtered = await context.Products.Where(p => p.CategoryId == 1);
+var count = await context.Products.CountAsync();
+var any = await context.Products.AnyAsync(p => p.Price > 0);
 ```
 
 ---
@@ -403,11 +300,10 @@ public partial class AddStockToProduct : Migration
 
 ```
 Sheetly/
-├── Sheetly.Core              # Core abstractions & base classes
-├── Sheetly.Google            # Google Sheets provider
-├── Sheetly.Excel             # (Future) Excel provider
-├── Sheetly.CLI               # Command-line tool
-└── Sheetly.DependencyInjection  # ASP.NET Core integration
+├── Sheetly.Core                  # Core: context, sets, migrations, validation
+├── Sheetly.Google                # Google Sheets API provider
+├── Sheetly.DependencyInjection   # ASP.NET Core DI extensions
+└── dotnet-sheetly (CLI)          # Command-line migration tool
 ```
 
 ---
@@ -416,48 +312,19 @@ Sheetly/
 
 Sheetly creates **hidden sheets** in your Google Spreadsheet:
 
-1. **Your Data Sheets** (Categories, Products, etc.)
-   - Standard sheets with headers and data rows
-   - Each entity gets its own sheet
+| Sheet | Purpose |
+|---|---|
+| `Products`, `Categories`, ... | Your data — one sheet per entity |
+| `__SheetlySchema__` (hidden) | Metadata: types, constraints, relationships, auto-increment IDs |
+| `__SheetlyMigrationsHistory__` (hidden) | Applied migration tracking |
 
-2. **__SheetlySchema__** (hidden)
-   - Stores complete metadata for all properties
-   - Tracks ClassName, DataType, constraints, relationships
-   - 30 columns of metadata per property
+### Workflow
 
-3. **__SheetlyMigrationsHistory__** (hidden)
-   - Migration tracking (MigrationId, AppliedAt, ProductVersion)
-   - Ensures database/code synchronization
-
-### Workflow:
-```bash
-1. Define models → 2. Create migrations → 3. Apply to Sheets
-   ↓                    ↓                      ↓
-  C# classes       .cs migration files    Google Sheets
-                   + snapshot files        + schema tracking
 ```
-
----
-
-## 🎯 Current Status (v1.0.9)
-
-### ✅ Completed Features:
-- ✅ SheetsContext & SheetsSet<T>
-- ✅ CRUD operations (Add, Update, Remove, SaveChangesAsync)
-- ✅ ToListAsync, Include, AsNoTracking
-- ✅ Code-first migrations (C# files, not JSON)
-- ✅ Incremental migrations (AddColumn, DropColumn)
-- ✅ Full schema metadata tracking
-- ✅ Primary Key auto-increment
-- ✅ Foreign Key relationships
-- ✅ CLI tool (migrations add, database update/drop)
-- ✅ Entity tracking with Update/Remove support
-
-### 🚧 In Development:
-- 🔄 Validation framework
-- 🔄 Complex queries (Where, OrderBy, Skip, Take)
-- 🔄 Scaffold-DbContext (reverse engineering)
-- 🔄 ASP.NET Core DI integration
+Define models → Create migrations → Apply to Sheets → Use context
+     ↓                ↓                    ↓               ↓
+  C# classes    .cs migration files   Google Sheets    CRUD + queries
+```
 
 ---
 
@@ -469,16 +336,10 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
 ---
 
-## 🙏 Acknowledgments
-
-Inspired by **Entity Framework Core** - bringing that amazing developer experience to Google Sheets.
-
----
-
-Created with ❤️ by **Muqimjon Mamadaliyev**
+Created with ❤️ by [Muqimjon Mamadaliyev](https://github.com/muqimjon)
 
 **Give it a ⭐ if you like it!**

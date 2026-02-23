@@ -8,12 +8,21 @@
 		<Version>1.0.0</Version>
 		<Company>Dotnetolog</Company>
 		<Authors>Muqimjon Mamadaliyev</Authors>
+		<Copyright>Copyright (c) 2025–2026 Muqimjon Mamadaliyev</Copyright>
 		<Description>Dependency injection extensions for Sheetly ORM. Easily register Sheetly in ASP.NET Core applications.</Description>
 		<PackageTags>dependency-injection;sheetly;aspnetcore;di</PackageTags>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
+		<RepositoryUrl>https://github.com/muqimjon/sheetly</RepositoryUrl>
+		<RepositoryType>git</RepositoryType>
+		<PackageProjectUrl>https://github.com/muqimjon/sheetly</PackageProjectUrl>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
 
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 	</PropertyGroup>
+
+	<ItemGroup>
+		<None Include="..\..\README.md" Pack="true" PackagePath="\" />
+	</ItemGroup>
 
 	<ItemGroup>
 		<ProjectReference Include="..\Sheetly.Google\Sheetly.Google.csproj" />

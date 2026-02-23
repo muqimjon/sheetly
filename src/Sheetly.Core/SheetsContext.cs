@@ -52,8 +52,7 @@ public abstract class SheetsContext : IDisposable
 	}
 
 	/// <summary>
-	/// Verifies that all local migrations have been applied to the remote database.
-	/// Throws if pending migrations exist, like EF Core does on model mismatch.
+	/// Throws if pending migrations exist.
 	/// </summary>
 	private async Task CheckMigrationSyncAsync()
 	{
@@ -81,7 +80,7 @@ public abstract class SheetsContext : IDisposable
 	}
 
 	/// <summary>
-	/// Compares the live model with the stored ModelSnapshot to detect unapplied model changes.
+	/// Throws if model has changed since last migration.
 	/// </summary>
 	private void CheckModelSnapshotSync()
 	{
@@ -99,13 +98,10 @@ public abstract class SheetsContext : IDisposable
 		{
 			throw new InvalidOperationException(
 				"The model has changed since the last migration was created. " +
-				"Create a new migration using 'dotnet sheetly migration add <Name>' to apply your model changes.");
+				"Create a new migration using 'dotnet sheetly migrations add <Name>' to apply your model changes.");
 		}
 	}
 
-	/// <summary>
-	/// Gets all migration IDs from local migration files.
-	/// </summary>
 	private List<string> GetLocalMigrations(Assembly assembly)
 	{
 		var migrations = new List<string>();
@@ -124,9 +120,6 @@ public abstract class SheetsContext : IDisposable
 		return migrations.OrderBy(m => m).ToList();
 	}
 
-	/// <summary>
-	/// Gets applied migration IDs from the remote database (__SheetlyMigrationsHistory__).
-	/// </summary>
 	private async Task<List<string>> GetAppliedMigrationsFromRemoteAsync()
 	{
 		const string HistoryTable = "__SheetlyMigrationsHistory__";
@@ -258,7 +251,7 @@ public abstract class SheetsContext : IDisposable
 	}
 
 	/// <summary>
-	/// Validates FK references by fetching remote data. Groups by table to minimize API calls.
+	/// Validates FK references by fetching remote data, grouped by table to minimize API calls.
 	/// </summary>
 	private async Task ValidateForeignKeyReferencesAsync(List<object> pendingEntities)
 	{

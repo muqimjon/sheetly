@@ -67,27 +67,18 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		return result;
 	}
 
-	/// <summary>
-	/// Filters entities in memory after loading all data from the sheet.
-	/// </summary>
 	public async Task<List<T>> Where(Func<T, bool> predicate)
 	{
 		var all = await ToListAsync();
 		return all.Where(predicate).ToList();
 	}
 
-	/// <summary>
-	/// Returns the first entity matching the predicate, or default if none found.
-	/// </summary>
 	public async Task<T?> FirstOrDefaultAsync(Func<T, bool>? predicate = null)
 	{
 		var all = await ToListAsync();
 		return predicate != null ? all.FirstOrDefault(predicate) : all.FirstOrDefault();
 	}
 
-	/// <summary>
-	/// Finds an entity by its primary key value.
-	/// </summary>
 	public async Task<T?> FindAsync(object keyValue)
 	{
 		var pkColumn = schema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
@@ -105,18 +96,12 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		});
 	}
 
-	/// <summary>
-	/// Returns the count of entities in the sheet.
-	/// </summary>
 	public async Task<int> CountAsync(Func<T, bool>? predicate = null)
 	{
 		var all = await ToListAsync();
 		return predicate != null ? all.Count(predicate) : all.Count;
 	}
 
-	/// <summary>
-	/// Returns whether any entity matches the predicate.
-	/// </summary>
 	public async Task<bool> AnyAsync(Func<T, bool>? predicate = null)
 	{
 		var all = await ToListAsync();
@@ -269,7 +254,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 	private async Task<int> GetAndIncrementIdFromCentralSchema(string tableName, int count)
 	{
 		if (!await provider.SheetExistsAsync(SchemaTable))
-			throw new Exception("SheetlyError: __SheetlySchema__ jadvali topilmadi.");
+			throw new Exception("__SheetlySchema__ table not found.");
 
 		var rows = await provider.GetAllRowsAsync(SchemaTable);
 		int schemaIdValue = 0; // Value from __SheetlySchema__

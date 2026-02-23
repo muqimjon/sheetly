@@ -13,7 +13,7 @@ public class ScaffoldCommand : Command
 	private readonly Option<string?> _projectOption = new("--project", ["-p"]);
 	private readonly Option<string?> _outputDirOption = new("--output-dir", ["-o"]);
 
-	public ScaffoldCommand() : base("scaffold", "Google Sheets'dan model klaslarini qayta yaratish")
+	public ScaffoldCommand() : base("scaffold", "Scaffold model classes from Google Sheets")
 	{
 		this.Add(_projectOption);
 		this.Add(_outputDirOption);
@@ -32,7 +32,7 @@ public class ScaffoldCommand : Command
 		{
 			var assembly = Assembly.LoadFrom(Path.GetFullPath(dllPath));
 			var contextType = assembly.GetExportedTypes().FirstOrDefault(t => CliHelper.IsSubclassOfSheetsContext(t))
-				?? throw new Exception("SheetsContext topilmadi.");
+				?? throw new Exception("SheetsContext not found.");
 
 			string contextProjectDir = CliHelper.FindProjectRootFromDll(dllPath);
 			string? connStr = CliHelper.GetConnectionString(contextProjectDir);
@@ -43,7 +43,7 @@ public class ScaffoldCommand : Command
 			var context = (SheetsContext)((dynamic)task).Result;
 
 			var rows = await context.Provider.GetAllRowsAsync("__SheetlyHistory__");
-			if (rows.Count <= 1) throw new Exception("Migratsiya tarixi topilmadi.");
+			if (rows.Count <= 1) throw new Exception("Migration history not found.");
 
 			var snapshotJson = rows.Last()[2].ToString()!;
 			var snapshot = JsonSerializer.Deserialize<MigrationSnapshot>(snapshotJson)!;
@@ -55,10 +55,10 @@ public class ScaffoldCommand : Command
 			{
 				var code = CliHelper.GenerateClassCode(entity);
 				await File.WriteAllTextAsync(Path.Combine(finalPath, $"{entity.ClassName}.cs"), code, ct);
-				Console.WriteLine($"📄 Yaratildi: {entity.ClassName}.cs");
+				Console.WriteLine($"📄 Created: {entity.ClassName}.cs");
 			}
-			Console.WriteLine("✅ Scaffolding tugadi.");
+			Console.WriteLine("✅ Scaffolding complete.");
 		}
-		catch (Exception ex) { Console.WriteLine($"❌ Xato: {ex.Message}"); }
+		catch (Exception ex) { Console.WriteLine($"❌ Error: {ex.Message}"); }
 	}
 }

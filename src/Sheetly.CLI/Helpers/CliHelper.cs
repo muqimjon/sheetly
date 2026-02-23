@@ -24,7 +24,7 @@ public static class CliHelper
 
 		if (!noBuild)
 		{
-			Console.WriteLine($"⏳ Loyiha qurilmoqda: '{Path.GetFileName(csproj)}'...");
+			Console.WriteLine($"⏳ Building project: '{Path.GetFileName(csproj)}'...");
 			var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("dotnet", "build -c Debug") { UseShellExecute = false });
 			process?.WaitForExit();
 		}

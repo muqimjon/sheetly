@@ -24,7 +24,7 @@ public class DropCommand : Command
 	{
 		if (!force)
 		{
-			Console.Write("⚠️ Ma'lumotlar bazasini tozalashga ishonchingiz komilmi? (y/N): ");
+			Console.Write("⚠️ Are you sure you want to drop the database? (y/N): ");
 			if (Console.ReadLine()?.ToLower() != "y") return;
 		}
 
@@ -35,7 +35,7 @@ public class DropCommand : Command
 		{
 			var assembly = Assembly.LoadFrom(Path.GetFullPath(dllPath));
 			var contextType = assembly.GetExportedTypes().FirstOrDefault(t => CliHelper.IsSubclassOfSheetsContext(t))
-				?? throw new Exception("SheetsContext topilmadi.");
+				?? throw new Exception("SheetsContext not found.");
 
 			string? connStr = CliHelper.GetConnectionString(CliHelper.FindProjectRootFromDll(dllPath));
 
@@ -48,8 +48,8 @@ public class DropCommand : Command
 
 			var context = (SheetsContext)((dynamic)task).Result;
 			await context.Database.DropDatabaseAsync();
-			Console.WriteLine("✅ Ma'lumotlar bazasi tozalandi.");
+			Console.WriteLine("✅ Database dropped successfully.");
 		}
-		catch (Exception ex) { Console.WriteLine($"❌ Xato: {ex.Message}"); }
+		catch (Exception ex) { Console.WriteLine($"❌ Error: {ex.Message}"); }
 	}
 }

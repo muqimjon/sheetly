@@ -8,14 +8,21 @@
 		<Version>1.0.0</Version>
 		<Company>Dotnetolog</Company>
 		<Authors>Muqimjon Mamadaliyev</Authors>
+		<Copyright>Copyright (c) 2025–2026 Muqimjon Mamadaliyev</Copyright>
 		<Description>Entity Framework Core-like ORM for Google Sheets. Work with spreadsheets using familiar EF Core patterns, migrations, and LINQ-style queries.</Description>
 		<PackageTags>orm;google-sheets;entity-framework;migrations;spreadsheet;dotnet</PackageTags>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
-		<RepositoryUrl>https://github.com/yourusername/sheetly</RepositoryUrl>
-		<PackageProjectUrl>https://github.com/yourusername/sheetly</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/muqimjon/sheetly</RepositoryUrl>
+		<RepositoryType>git</RepositoryType>
+		<PackageProjectUrl>https://github.com/muqimjon/sheetly</PackageProjectUrl>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
 
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 	</PropertyGroup>
+
+	<ItemGroup>
+		<None Include="..\..\README.md" Pack="true" PackagePath="\" />
+	</ItemGroup>
 
 	<ItemGroup>
 		<PackageReference Include="ClosedXML" Version="0.105.0" />

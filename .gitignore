@@ -446,3 +446,6 @@ nupkg/
 
 # Migrations (These MUST be included in Git)
 !**/Migrations/*.json
+build.log
+
+nupkg/

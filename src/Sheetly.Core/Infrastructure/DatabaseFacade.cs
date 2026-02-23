@@ -20,7 +20,7 @@ public class DatabaseFacade
 	}
 
 	/// <summary>
-	/// Applies all pending migrations to the database (like EF Core's Database.Migrate()).
+	/// Applies all pending migrations.
 	/// </summary>
 	public async Task MigrateAsync()
 	{
@@ -59,9 +59,6 @@ public class DatabaseFacade
 		}
 	}
 
-	/// <summary>
-	/// Checks if there are pending migrations that need to be applied.
-	/// </summary>
 	public async Task<List<string>> GetPendingMigrationsAsync()
 	{
 		if (_migrationService == null) return [];

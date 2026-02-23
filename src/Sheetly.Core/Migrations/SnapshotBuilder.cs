@@ -8,18 +8,8 @@ using System.Text.Json;
 
 namespace Sheetly.Core.Migrations;
 
-/// <summary>
-/// Builds a MigrationSnapshot from a SheetsContext type.
-/// Similar to Entity Framework's model snapshot generation.
-/// </summary>
 public static class SnapshotBuilder
 {
-	/// <summary>
-	/// Builds a snapshot from the specified context type.
-	/// </summary>
-	/// <param name="contextType">The SheetsContext type to analyze.</param>
-	/// <param name="modelMetadata">Optional model metadata from ModelBuilder configuration.</param>
-	/// <returns>A snapshot of the current model.</returns>
 	public static MigrationSnapshot BuildFromContext(Type contextType, Dictionary<Type, EntityMetadata>? modelMetadata = null)
 	{
 		var snapshot = new MigrationSnapshot();

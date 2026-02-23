@@ -70,16 +70,16 @@ public class RollbackCommand : Command
 			// If there are previous migrations, restore snapshot from them
 			if (migrations.Count > 1)
 			{
-				Console.WriteLine("💡 Run 'sheetly add' again to regenerate snapshot from current model.");
+				Console.WriteLine("💡 Run 'dotnet-sheetly migrations add' again to regenerate snapshot from current model.");
 			}
 			else
 			{
-				// Delete snapshot if no more migrations
-				var snapshotPath = Path.Combine(migrationsDir, "sheetly_snapshot.json");
-				if (File.Exists(snapshotPath))
+				// Delete ModelSnapshot if no more migrations
+				var snapshotFiles = Directory.GetFiles(migrationsDir, "*ModelSnapshot.cs");
+				foreach (var sf in snapshotFiles)
 				{
-					File.Delete(snapshotPath);
-					Console.WriteLine("🗑️ Deleted snapshot (no migrations remaining).");
+					File.Delete(sf);
+					Console.WriteLine($"🗑️ Deleted snapshot: {Path.GetFileName(sf)}");
 				}
 			}
 

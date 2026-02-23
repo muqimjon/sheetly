@@ -1,7 +1,7 @@
 ﻿using Sheetly.CLI.Helpers;
 using Sheetly.Core.Migration;
 using System.CommandLine;
-using System.Text.Json;
+using System.Reflection;
 
 namespace Sheetly.CLI.Commands;
 
@@ -22,30 +22,33 @@ public class ScriptCommand : Command
 
 		try
 		{
-			string contextProjectDir = CliHelper.FindProjectRootFromDll(Path.GetFullPath(dllPath));
-			string snapshotPath = Path.Combine(contextProjectDir, "Migrations", "sheetly_snapshot.json");
+			var assembly = Assembly.LoadFrom(Path.GetFullPath(dllPath));
 
-			if (!File.Exists(snapshotPath))
+			var snapshotType = assembly.GetTypes()
+				.FirstOrDefault(t => t.Name.EndsWith("ModelSnapshot") && t.IsSubclassOf(typeof(MigrationSnapshot)));
+
+			if (snapshotType == null)
 			{
-				Console.WriteLine("⚠️ Snapshot topilmadi. Avval 'migrations add' buyrug'ini ishlating.");
+				Console.WriteLine("⚠️ Snapshot not found. Run 'migrations add' first.");
 				return;
 			}
 
-			var snapshotJson = await File.ReadAllTextAsync(snapshotPath);
-			var snapshot = JsonSerializer.Deserialize<MigrationSnapshot>(snapshotJson);
+			var snapshot = (MigrationSnapshot)Activator.CreateInstance(snapshotType)!;
 
 			Console.WriteLine($"--- Sheetly Schema Script (Generated at {DateTime.Now}) ---");
-			foreach (var entity in snapshot!.Entities.Values)
+			foreach (var entity in snapshot.Entities.Values)
 			{
 				Console.WriteLine($"Sheet: {entity.TableName}");
 				foreach (var col in entity.Columns)
 				{
-					string pk = col.IsPrimaryKey ? "[PK]" : "";
-					Console.WriteLine($"  - {col.PropertyName} ({col.DataType}) {pk}");
+					string pk = col.IsPrimaryKey ? " [PK]" : "";
+					string fk = col.IsForeignKey ? $" [FK → {col.ForeignKeyTable}]" : "";
+					string req = col.IsRequired ? " [Required]" : "";
+					Console.WriteLine($"  - {col.PropertyName} ({col.DataType}){pk}{fk}{req}");
 				}
 				Console.WriteLine();
 			}
 		}
-		catch (Exception ex) { Console.WriteLine($"❌ Xato: {ex.Message}"); }
+		catch (Exception ex) { Console.WriteLine($"❌ Error: {ex.Message}"); }
 	}
 }
