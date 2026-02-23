@@ -1,0 +1,54 @@
+name: Publish to NuGet
+
+on:
+  push:
+    branches: [ release ]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=$(grep -m1 '<Version>' src/Sheetly.Core/Sheetly.Core.csproj | sed 's/.*<Version>\(.*\)<\/Version>.*/\1/' | tr -d '[:space:]')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Detected version: $VERSION"
+
+      - name: Build
+        run: dotnet build Sheetly.sln -c Release --no-incremental
+
+      - name: Test
+        run: dotnet test tests/Sheetly.Core.Tests/ -c Release --no-build --verbosity normal
+
+      - name: Pack
+        run: dotnet pack Sheetly.sln -c Release --no-build -o ./nupkg
+
+      - name: Push to NuGet
+        run: |
+          dotnet nuget push nupkg/Sheetly.Core.${{ steps.version.outputs.version }}.nupkg \
+            -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
+          dotnet nuget push nupkg/Sheetly.Google.${{ steps.version.outputs.version }}.nupkg \
+            -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
+          dotnet nuget push nupkg/Sheetly.DependencyInjection.${{ steps.version.outputs.version }}.nupkg \
+            -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
+          dotnet nuget push nupkg/dotnet-sheetly.${{ steps.version.outputs.version }}.nupkg \
+            -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: v${{ steps.version.outputs.version }}
+          name: Sheetly v${{ steps.version.outputs.version }}
+          artifacts: nupkg/*.nupkg
+          bodyFile: RELEASE_NOTES.md
+          token: ${{ secrets.GITHUB_TOKEN }}
+          skipIfReleaseExists: true

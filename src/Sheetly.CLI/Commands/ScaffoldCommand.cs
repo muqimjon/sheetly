@@ -35,7 +35,8 @@ public class ScaffoldCommand : Command
 				?? throw new Exception("SheetsContext not found.");
 
 			string contextProjectDir = CliHelper.FindProjectRootFromDll(dllPath);
-			string? connStr = CliHelper.GetConnectionString(contextProjectDir);
+			string? connStr = CliHelper.GetConnectionString(contextProjectDir)
+				?? CliHelper.GetConnectionStringFromContext(contextType);
 
 			var method = typeof(GoogleSheetsFactory).GetMethods().First(m => m.Name == "CreateContextAsync").MakeGenericMethod(contextType);
 			var task = (Task)method.Invoke(null, [connStr])!;

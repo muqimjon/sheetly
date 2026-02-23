@@ -23,7 +23,7 @@ public class RemoveCommand : Command
 
 	private async Task ExecuteAsync(string? projectPath, CancellationToken ct)
 	{
-		string dllPath = CliHelper.FindProjectDll(true, projectPath);
+		string dllPath = CliHelper.FindProjectDll(false, projectPath);
 		if (string.IsNullOrEmpty(dllPath)) return;
 
 		try

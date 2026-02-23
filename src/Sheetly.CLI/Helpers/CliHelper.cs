@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Sheetly.Core.Migration;
+using System.Reflection;
 using System.Text;
 
 namespace Sheetly.CLI.Helpers;
@@ -25,8 +26,19 @@ public static class CliHelper
 		if (!noBuild)
 		{
 			Console.WriteLine($"⏳ Building project: '{Path.GetFileName(csproj)}'...");
-			var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("dotnet", "build -c Debug") { UseShellExecute = false });
+			var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+				"dotnet", $"build \"{csproj}\" -c Debug --no-self-contained")
+			{
+				UseShellExecute = false
+			});
 			process?.WaitForExit();
+			if (process?.ExitCode != 0)
+			{
+				Console.ForegroundColor = ConsoleColor.Red;
+				Console.WriteLine("❌ Build failed. Fix the errors above before running this command.");
+				Console.ResetColor();
+				return string.Empty;
+			}
 		}
 
 		var targetDir = Path.Combine(Directory.GetCurrentDirectory(), "bin", "Debug");
@@ -51,6 +63,20 @@ public static class CliHelper
 
 		return config.GetConnectionString("DefaultConnection")
 			   ?? config.GetSection("Sheetly")["ConnectionString"];
+	}
+
+	public static string? GetConnectionStringFromContext(Type contextType)
+	{
+		try
+		{
+			var context = Activator.CreateInstance(contextType);
+			var options = new Sheetly.Core.Configuration.SheetsOptions();
+			var method = contextType.GetMethod("OnConfiguring",
+				BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+			method?.Invoke(context, [options]);
+			return options.ConnectionString;
+		}
+		catch { return null; }
 	}
 
 	public static string GenerateClassCode(EntitySchema entity)

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
 		<OutputType>Exe</OutputType>
 		<TargetFramework>net10.0</TargetFramework>
@@ -9,7 +9,7 @@
 		<ToolCommandName>dotnet-sheetly</ToolCommandName>
 		<PackageId>dotnet-sheetly</PackageId>
 
-		<Version>1.0.0</Version>
+		<Version>1.0.1</Version>
 		<Company>Dotnetolog</Company>
 		<Authors>Muqimjon Mamadaliyev</Authors>
 		<Copyright>Copyright (c) 2025–2026 Muqimjon Mamadaliyev</Copyright>
@@ -20,12 +20,14 @@
 		<RepositoryType>git</RepositoryType>
 		<PackageProjectUrl>https://github.com/muqimjon/sheetly</PackageProjectUrl>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<PackageIcon>icon.png</PackageIcon>
 
-		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+		<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<None Include="..\..\README.md" Pack="true" PackagePath="\" />
+		<None Include="..\..\icon.png" Pack="true" PackagePath="\" />
 	</ItemGroup>
 
 	<ItemGroup>
