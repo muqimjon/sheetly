@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.svg" width="100%" alt="Sheetly Banner" />
+  <img src="https://raw.githubusercontent.com/muqimjon/sheetly/main/assets/banner.svg" width="100%" alt="Sheetly Banner" />
 </p>
 
 <p align="center">
