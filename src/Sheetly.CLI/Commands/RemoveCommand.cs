@@ -1,4 +1,4 @@
-﻿using Sheetly.CLI.Helpers;
+using Sheetly.CLI.Helpers;
 using Sheetly.Core.Migration;
 using Sheetly.Core.Migrations;
 using Sheetly.Core.Migrations.Design;
@@ -41,7 +41,6 @@ public class RemoveCommand : Command
 				return;
 			}
 
-			// Find last migration type by MigrationAttribute ID (sorted descending)
 			var migrationTypes = assembly.GetExportedTypes()
 				.Where(t => t.GetCustomAttribute<MigrationAttribute>() != null)
 				.OrderByDescending(t => t.GetCustomAttribute<MigrationAttribute>()!.Id)
@@ -56,7 +55,6 @@ public class RemoveCommand : Command
 			var lastMigrationType = migrationTypes[0];
 			string migrationId = lastMigrationType.GetCustomAttribute<MigrationAttribute>()!.Id;
 
-			// Find the corresponding .cs file on disk
 			var migrationFile = Directory.GetFiles(migrationsDir, "*.cs")
 				.FirstOrDefault(f => !f.Contains("ModelSnapshot") &&
 									 Path.GetFileNameWithoutExtension(f) == migrationId);
@@ -67,7 +65,6 @@ public class RemoveCommand : Command
 				return;
 			}
 
-			// Load the current snapshot from the compiled assembly
 			string contextName = contextType.Name.Replace("Context", "");
 			string snapshotClassName = $"{contextName}ModelSnapshot";
 			string targetNamespace = $"{contextType.Namespace}.Migrations";
@@ -79,17 +76,14 @@ public class RemoveCommand : Command
 			var currentSnapshot = Activator.CreateInstance(snapshotType) as MigrationSnapshot
 				?? throw new Exception("Failed to instantiate ModelSnapshot.");
 
-			// Get the Down() operations to know what to revert
 			var lastMigration = Activator.CreateInstance(lastMigrationType) as Migration
 				?? throw new Exception("Failed to instantiate migration.");
 
 			var downBuilder = new Sheetly.Core.Migrations.MigrationBuilder();
 			lastMigration.Down(downBuilder);
 
-			// Apply Down operations to produce the previous snapshot state
 			var revertedSnapshot = RevertSnapshot(currentSnapshot, downBuilder.GetOperations());
 
-			// Regenerate ModelSnapshot C# file
 			var generator = new ModelSnapshotGenerator();
 			string snapshotCode = generator.GenerateModelSnapshot(revertedSnapshot, targetNamespace, contextName);
 			string snapshotFilePath = Path.Combine(migrationsDir, $"{snapshotClassName}.cs");

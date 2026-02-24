@@ -49,6 +49,6 @@ jobs:
           tag: v${{ steps.version.outputs.version }}
           name: Sheetly v${{ steps.version.outputs.version }}
           artifacts: nupkg/*.nupkg
-          bodyFile: RELEASE_NOTES.md
+          bodyFile: docs/RELEASE_NOTES.md
           token: ${{ secrets.GITHUB_TOKEN }}
           skipIfReleaseExists: true

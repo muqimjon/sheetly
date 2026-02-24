@@ -64,12 +64,6 @@ public static class MigrationBuilder
 					MaxLength = prop.GetCustomAttribute<MaxLengthAttribute>()?.Length
 				};
 
-				// Store custom attributes for legacy compatibility (though deprecated)
-				var attrs = prop.GetCustomAttributes().Select(a => a.GetType().Name.Replace("Attribute", "")).ToList();
-#pragma warning disable CS0618 // Intentional use of deprecated property for backward compatibility
-				if (attrs.Count != 0) column.Attributes = string.Join(", ", attrs.Select(a => $"[{a}]"));
-#pragma warning restore CS0618
-
 				if (prop.Name.EndsWith("Id", StringComparison.OrdinalIgnoreCase) && !column.IsPrimaryKey)
 				{
 					var relatedName = prop.Name.Substring(0, prop.Name.Length - 2);

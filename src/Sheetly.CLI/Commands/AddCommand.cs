@@ -1,4 +1,4 @@
-﻿using Sheetly.CLI.Helpers;
+using Sheetly.CLI.Helpers;
 using Sheetly.Core;
 using Sheetly.Core.Migration;
 using Sheetly.Core.Migrations;
@@ -61,7 +61,6 @@ public class AddCommand : Command
 			// Build current snapshot — must include fluent API metadata to match SheetsContext.InitializeAsync
 			var currentSnapshot = SnapshotBuilder.BuildFromContext(contextType, modelBuilder.GetMetadata());
 
-			// Load previous snapshot from C# ModelSnapshot class (EF Core style)
 			string finalPath = Path.Combine(contextProjectDir, outputDir);
 			Directory.CreateDirectory(finalPath);
 
@@ -76,7 +75,6 @@ public class AddCommand : Command
 				previousSnapshot = Activator.CreateInstance(snapshotType) as MigrationSnapshot;
 			}
 
-			// Get differences
 			var modelDiffer = new ModelDiffer();
 			var operations = modelDiffer.GetDifferences(previousSnapshot, currentSnapshot);
 
@@ -87,7 +85,6 @@ public class AddCommand : Command
 			}
 
 
-			// Check for duplicate migration name (same class name, different timestamp)
 			var existingMigration = Directory.GetFiles(finalPath, "*.cs")
 				.Where(f => !f.Contains("ModelSnapshot"))
 				.FirstOrDefault(f => Path.GetFileNameWithoutExtension(f).EndsWith($"_{name}", StringComparison.OrdinalIgnoreCase));
@@ -98,7 +95,6 @@ public class AddCommand : Command
 				return;
 			}
 
-			// Generate C# migration file
 			string timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
 			string migrationId = $"{timestamp}_{name}";
 			string targetNamespace = $"{contextType.Namespace}.Migrations";
@@ -106,11 +102,9 @@ public class AddCommand : Command
 			var generator = new CSharpMigrationGenerator();
 			string migrationCode = generator.GenerateMigration(name, migrationId, targetNamespace, operations);
 
-			// Write C# migration file
 			string csharpFileName = $"{migrationId}.cs";
 			await File.WriteAllTextAsync(Path.Combine(finalPath, csharpFileName), migrationCode, ct);
 
-			// Generate ModelSnapshot.cs (EF Core style - C# only, no JSON!)
 			var snapshotGenerator = new ModelSnapshotGenerator();
 			string snapshotCode = snapshotGenerator.GenerateModelSnapshot(
 				currentSnapshot,

@@ -1,8 +1,19 @@
-# 🎉 Sheetly v1.0.0 — Release Notes
+# 🎉 Sheetly v1.0.1 — Release Notes
 
 ## Entity Framework Core for Google Sheets
 
 **Release Date:** February 23, 2026
+
+---
+
+## 🐛 What's Fixed in v1.0.1
+
+- **CLI banner** — EF Core-style terminal output with teal rocket art
+- **`OnConfiguring` detection** — `dotnet sheetly database update` now reads connection settings directly from `OnConfiguring()`, no `appsettings.json` required
+- **Build-first behavior** — All CLI commands now build the project before executing (like `dotnet ef`)
+- **Version output** — Removed git commit hash from `--version` output
+- **Brand logo** — Added official icon to all NuGet packages
+- **CI/CD** — GitHub Actions workflows for automatic NuGet publishing
 
 ---
 

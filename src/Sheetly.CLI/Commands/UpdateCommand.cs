@@ -78,7 +78,6 @@ public class UpdateCommand : Command
 
 			Console.WriteLine($"🚀 Found {pendingMigrations.Count} pending migration(s).");
 
-			// Load snapshot to enrich operations with ClassName / IsAutoIncrement
 			var snapshotType = assembly.GetTypes()
 			.FirstOrDefault(t => t.Name.EndsWith("ModelSnapshot") && t.IsSubclassOf(typeof(MigrationSnapshot)));
 			MigrationSnapshot? currentSnapshot = snapshotType != null

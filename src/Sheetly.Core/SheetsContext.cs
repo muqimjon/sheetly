@@ -132,7 +132,6 @@ public abstract class SheetsContext : IDisposable
 
 		var rows = await Provider.GetAllRowsAsync(HistoryTable);
 
-		// Skip header row (index 0), get MigrationId from first column
 		return rows.Skip(1)
 			.Where(r => r.Count > 0 && !string.IsNullOrEmpty(r[0]?.ToString()))
 			.Select(r => r[0]!.ToString()!)
