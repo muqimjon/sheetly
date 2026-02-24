@@ -64,18 +64,6 @@ public class ColumnSchema
 	// Additional metadata
 	public string? Comment { get; set; }
 	public string? Collation { get; set; }
-
-	// Legacy support
-	[Obsolete("Use specific constraint properties instead")]
-	public string? Attributes { get; set; }
-
-	// Deprecated property name - use ForeignKeyTable
-	[Obsolete("Use ForeignKeyTable instead")]
-	public string? RelatedTable
-	{
-		get => ForeignKeyTable;
-		set => ForeignKeyTable = value;
-	}
 }
 
 /// <summary>

@@ -1,4 +1,4 @@
-﻿using Sheetly.Core.Abstractions;
+using Sheetly.Core.Abstractions;
 using Sheetly.Core.Mapping;
 using Sheetly.Core.Migration;
 using System.Collections;
@@ -129,7 +129,6 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 				relatedSchema = allSchemas.Values.FirstOrDefault(s => s.ClassName == targetType.Name);
 				if (relatedSchema == null) continue;
 			}
-			// Always use the schema's actual table name for provider calls
 			var actualTableName = relatedSchema.TableName;
 
 			if (!loadedTables.TryGetValue(actualTableName, out List<object>? value))
@@ -257,7 +256,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 			throw new Exception("__SheetlySchema__ table not found.");
 
 		var rows = await provider.GetAllRowsAsync(SchemaTable);
-		int schemaIdValue = 0; // Value from __SheetlySchema__
+		int schemaIdValue = 0;
 		var pkPropertyName = schema.Columns.First(c => c.IsPrimaryKey).PropertyName;
 
 		int schemaRowIndex = -1;
@@ -293,16 +292,12 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 			}
 		}
 
-		// Use the maximum of schema value and actual data
 		int currentId = Math.Max(schemaIdValue, maxIdInSheet);
 
-		// Next available ID (increment from max)
 		int nextId = currentId + 1;
 
-		// Calculate what schema should store after this operation
 		int newSchemaValue = nextId + count - 1;
 
-		// Update schema with new value
 		if (schemaRowIndex >= 0)
 		{
 			await provider.UpdateValueAsync(SchemaTable, $"AC{schemaRowIndex + 1}", newSchemaValue);

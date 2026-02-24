@@ -1,13 +1,8 @@
 namespace Sheetly.Core.Migrations;
 
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
-public class MigrationAttribute : Attribute
+public class MigrationAttribute(string id) : Attribute
 {
 	/// <summary>Format: yyyyMMddHHmmss_MigrationName</summary>
-	public string Id { get; }
-
-	public MigrationAttribute(string id)
-	{
-		Id = id ?? throw new ArgumentNullException(nameof(id));
-	}
+	public string Id { get; } = id ?? throw new ArgumentNullException(nameof(id));
 }

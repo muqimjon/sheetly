@@ -3,9 +3,9 @@ using System.CommandLine;
 using System.Reflection;
 
 var version = Assembly
-    .GetExecutingAssembly()
-    .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
-    .InformationalVersion;
+	.GetExecutingAssembly()
+	.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
+	.InformationalVersion;
 
 // Root Command
 RootCommand rootCommand = new("Sheetly CLI - Google Sheets ORM Tool");
