@@ -1,13 +1,9 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/muqimjon/sheetly/main/assets/banner.svg" width="100%" alt="Sheetly Banner" />
-</p>
+![Sheetly Banner](https://raw.githubusercontent.com/muqimjon/sheetly/main/assets/banner.svg)
 
-<p align="center">
-  <a href="https://www.nuget.org/packages/Sheetly.Core/"><img src="https://img.shields.io/nuget/v/Sheetly.Core.svg?label=Sheetly.Core&color=2f7f73" /></a>
-  <a href="https://www.nuget.org/packages/Sheetly.Google/"><img src="https://img.shields.io/nuget/v/Sheetly.Google.svg?label=Sheetly.Google&color=2f7f73" /></a>
-  <a href="https://www.nuget.org/packages/dotnet-sheetly/"><img src="https://img.shields.io/nuget/v/dotnet-sheetly.svg?label=dotnet-sheetly&color=2f7f73" /></a>
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" /></a>
-</p>
+[![Sheetly.Core](https://img.shields.io/nuget/v/Sheetly.Core.svg?label=Sheetly.Core&color=2f7f73)](https://www.nuget.org/packages/Sheetly.Core/)
+[![Sheetly.Google](https://img.shields.io/nuget/v/Sheetly.Google.svg?label=Sheetly.Google&color=2f7f73)](https://www.nuget.org/packages/Sheetly.Google/)
+[![dotnet-sheetly](https://img.shields.io/nuget/v/dotnet-sheetly.svg?label=dotnet-sheetly&color=2f7f73)](https://www.nuget.org/packages/dotnet-sheetly/)
+[![License-MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
 
