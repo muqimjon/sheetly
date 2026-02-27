@@ -10,11 +10,8 @@ namespace Sheetly.Core.Tests.Integration.Helpers;
 /// </summary>
 public sealed class InMemorySheetsProvider : ISheetsProvider
 {
-	// sheetName → list of rows (index 0 = header, index 1+ = data rows)
 	private readonly Dictionary<string, List<IList<object>>> _sheets =
 		new(StringComparer.OrdinalIgnoreCase);
-
-	// ── Lifecycle ────────────────────────────────────────────────────────────
 
 	public Task InitializeAsync() => Task.CompletedTask;
 
@@ -25,8 +22,6 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 	}
 
 	public void Dispose() { }
-
-	// ── Sheet management ─────────────────────────────────────────────────────
 
 	public Task<bool> SheetExistsAsync(string sheetName) =>
 		Task.FromResult(_sheets.ContainsKey(sheetName));
@@ -60,8 +55,6 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 
 	public Task HideSheetAsync(string sheetName) => Task.CompletedTask;
 
-	// ── Row CRUD (1-based rowIndex: 1 = header, 2 = first data row) ──────────
-
 	public Task<List<IList<object>>> GetAllRowsAsync(string sheetName)
 	{
 		if (_sheets.TryGetValue(sheetName, out var rows))
@@ -73,7 +66,7 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 	{
 		if (_sheets.TryGetValue(sheetName, out var rows))
 		{
-			int idx = rowIndex - 1; // convert to 0-based
+			int idx = rowIndex - 1;
 			if (idx >= 0 && idx < rows.Count)
 				return Task.FromResult<IList<object>?>(rows[idx].ToList());
 		}
@@ -83,9 +76,9 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 	public Task<int> FindRowIndexByKeyAsync(string sheetName, string keyValue)
 	{
 		if (_sheets.TryGetValue(sheetName, out var rows))
-			for (int i = 1; i < rows.Count; i++) // skip header at index 0
+			for (int i = 1; i < rows.Count; i++)
 				if (rows[i].Count > 0 && rows[i][0]?.ToString() == keyValue)
-					return Task.FromResult(i + 1); // 1-based
+					return Task.FromResult(i + 1);
 		return Task.FromResult(-1);
 	}
 
@@ -108,7 +101,7 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 	{
 		int max = 0;
 		if (_sheets.TryGetValue(sheetName, out var rows))
-			for (int i = 1; i < rows.Count; i++) // skip header at index 0
+			for (int i = 1; i < rows.Count; i++)
 				if (rows[i].Count > 0 && int.TryParse(rows[i][0]?.ToString(), out var id) && id > max)
 					max = id;
 		return Task.FromResult(max);
@@ -119,9 +112,8 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 		if (!_sheets.TryGetValue(sheetName, out var rows))
 			return Task.FromResult(1);
 
-		// Compute MAX(Id) + 1 in-memory (mirrors the Sheets formula)
 		int maxId = 0;
-		for (int i = 1; i < rows.Count; i++) // skip header at index 0
+		for (int i = 1; i < rows.Count; i++)
 		{
 			if (rows[i].Count > 0 && int.TryParse(rows[i][0]?.ToString(), out var id) && id > maxId)
 				maxId = id;
@@ -157,8 +149,6 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 		return Task.CompletedTask;
 	}
 
-	// ── Cell value (A1 notation, e.g. "AC2") ────────────────────────────────
-
 	public Task UpdateValueAsync(string sheetName, string cellAddress, object value)
 	{
 		if (!_sheets.TryGetValue(sheetName, out var rows)) return Task.CompletedTask;
@@ -188,34 +178,20 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 		return Task.FromResult<object?>(rowData[col]);
 	}
 
-	// ── Stubs (not needed for CRUD tests) ───────────────────────────────────
-
 	public Task AddDataValidationAsync(string sheetName, int columnIndex, string message) =>
 		Task.CompletedTask;
 
 	public Task SetCheckboxAsync(string sheetName, int startRow, int endRow, int columnId) =>
 		Task.CompletedTask;
 
-	// ── Test helpers ─────────────────────────────────────────────────────────
-
-	/// <summary>
-	/// Returns a snapshot of all rows in the given sheet (for assertions).
-	/// Returns empty list if sheet does not exist.
-	/// </summary>
 	public List<IList<object>> GetSheetSnapshot(string sheetName) =>
 		_sheets.TryGetValue(sheetName, out var rows)
 			? rows.Select(r => (IList<object>)r.ToList()).ToList()
 			: new List<IList<object>>();
 
-	/// <summary>
-	/// Returns the total number of data rows (excluding header) in the sheet.
-	/// </summary>
 	public int DataRowCount(string sheetName) =>
 		_sheets.TryGetValue(sheetName, out var rows) ? Math.Max(0, rows.Count - 1) : 0;
 
-	// ── Cell address parsing ─────────────────────────────────────────────────
-
-	/// <summary>Converts column letters like "AC" to 0-based index (A=0, B=1, …, AC=28).</summary>
 	private static int ParseColumnIndex(string cellAddress)
 	{
 		int i = 0;
@@ -224,7 +200,7 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 		int index = 0;
 		foreach (char c in letters)
 			index = index * 26 + (c - 'A' + 1);
-		return index - 1; // 0-based
+		return index - 1;
 	}
 
 	private static int ParseRowNumber(string cellAddress)

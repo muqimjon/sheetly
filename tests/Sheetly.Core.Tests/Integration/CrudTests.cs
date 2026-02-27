@@ -8,8 +8,6 @@ namespace Sheetly.Core.Tests.Integration;
 /// </summary>
 public class CrudTests
 {
-	// ── CREATE ────────────────────────────────────────────────────────────────
-
 	[Fact]
 	public async Task Add_SingleEntity_AssignsPositiveId()
 	{
@@ -37,7 +35,7 @@ public class CrudTests
 		await ctx.SaveChangesAsync();
 
 		var ids = new[] { c1.Id, c2.Id, c3.Id };
-		Assert.Equal(ids.Distinct().Count(), ids.Length); // all unique
+		Assert.Equal(ids.Distinct().Count(), ids.Length);
 		Assert.All(ids, id => Assert.True(id > 0));
 	}
 
@@ -54,8 +52,6 @@ public class CrudTests
 
 		Assert.Equal(c1.Id + 1, c2.Id);
 	}
-
-	// ── READ ──────────────────────────────────────────────────────────────────
 
 	[Fact]
 	public async Task ToListAsync_EmptySheet_ReturnsEmptyList()
@@ -115,8 +111,6 @@ public class CrudTests
 		Assert.Equal(category.Id, p.CategoryId);
 	}
 
-	// ── UPDATE ────────────────────────────────────────────────────────────────
-
 	[Fact]
 	public async Task Update_ChangesArePersistedOnNextRead()
 	{
@@ -160,8 +154,6 @@ public class CrudTests
 		var updated = await ctx.Products.ToListAsync();
 		Assert.Equal(599.99m, updated.First(x => x.Id == product.Id).Price);
 	}
-
-	// ── DELETE ────────────────────────────────────────────────────────────────
 
 	[Fact]
 	public async Task Remove_EntityIsGoneAfterSave()
@@ -218,8 +210,6 @@ public class CrudTests
 
 		Assert.Empty(await ctx.Categories.ToListAsync());
 	}
-
-	// ── SaveChanges return value ──────────────────────────────────────────────
 
 	[Fact]
 	public async Task SaveChangesAsync_ReturnsCorrectChangeCount()

@@ -19,17 +19,10 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 	private MigrationSnapshot? _currentSnapshot;
 	private ConstraintValidator? _validator;
 
-	// Stores options provided via constructor so InitializeAsync can use them
-	// without requiring an OnConfiguring override.
 	private readonly SheetsOptions? _constructorOptions;
 
-	/// <summary>Parameterless constructor — provider configured via OnConfiguring().</summary>
 	protected SheetsContext() { }
 
-	/// <summary>
-	/// Options constructor — mirrors EF Core's DbContext(DbContextOptions) pattern.
-	/// Use with <see cref="SheetsContextOptions{TContext}"/> for DI-friendly contexts.
-	/// </summary>
 	protected SheetsContext(SheetsOptions options)
 	{
 		_constructorOptions = options;
@@ -43,7 +36,6 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 	{
 		if (provider == null)
 		{
-			// Prefer constructor-injected options over OnConfiguring override
 			var options = _constructorOptions ?? new SheetsOptions();
 			if (_constructorOptions == null)
 				OnConfiguring(options);
@@ -108,7 +100,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 		var snapshotType = GetType().Assembly.GetTypes()
 			.FirstOrDefault(t => t.Name.EndsWith("ModelSnapshot") && t.IsSubclassOf(typeof(MigrationSnapshot)));
 
-		if (snapshotType == null) return; // No snapshot class yet — new project
+		if (snapshotType == null) return;
 
 		var storedSnapshot = (MigrationSnapshot?)Activator.CreateInstance(snapshotType);
 		if (storedSnapshot == null) return;
@@ -144,10 +136,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 		const string HistoryTable = "__SheetlyMigrationsHistory__";
 
 		if (!await Provider.SheetExistsAsync(HistoryTable))
-		{
-			// History table doesn't exist - database is new
 			return new List<string>();
-		}
 
 		var rows = await Provider.GetAllRowsAsync(HistoryTable);
 
@@ -167,7 +156,6 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 		{
 			var entityType = prop.PropertyType.GetGenericArguments()[0];
 
-			// Try to find schema by entity type name matching any table
 			EntitySchema? schema = null;
 			foreach (var kvp in snapshot.Entities)
 			{
@@ -197,7 +185,6 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 
 	public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
 	{
-		// Auto change detection: promote Unchanged → Modified for mutated entities
 		foreach (var set in sets.Values)
 		{
 			set.GetType()
@@ -222,7 +209,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 				allDeletedEntities.AddRange(deleted);
 		}
 
-		// Validate locally BEFORE any API calls (constraint checks, FK format, etc.)
+		// Validate locally before any API calls
 		if (_validator != null && allPendingEntities.Count > 0)
 		{
 			var result = new ValidationResult();
@@ -254,7 +241,6 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 				throw new ValidationException(result);
 		}
 
-		// Remote FK validation — one API call per referenced table
 		if (allPendingEntities.Count > 0)
 			await ValidateForeignKeyReferencesAsync(allPendingEntities);
 

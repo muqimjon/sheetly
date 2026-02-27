@@ -86,8 +86,8 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 			if (!_asNoTracking && !_trackedEntities.ContainsKey(entity))
 			{
 				_trackedEntities[entity] = EntityState.Unchanged;
-				_entityRowIndexes[entity] = i + 1; // A1 notation: row 1=header, row 2=first data
-				_snapshots[entity] = JsonSerializer.Serialize(entity); // snapshot for auto change detection
+				_entityRowIndexes[entity] = i + 1;
+				_snapshots[entity] = JsonSerializer.Serialize(entity);
 			}
 		}
 
@@ -118,16 +118,12 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 
 		var keyStr = keyValue.ToString()!;
 
-		// Optimization: scan only the PK column to find the row, then fetch just that row.
-		// 2 API calls (key-column scan + single row) vs GetAllRowsAsync (1 call but all data).
-		// For large datasets this is significantly faster.
 		var rowIndex = await provider.FindRowIndexByKeyAsync(schema.TableName, keyStr);
 		if (rowIndex < 0) return default;
 
 		var rowData = await provider.GetRowByIndexAsync(schema.TableName, rowIndex);
 		if (rowData == null) return default;
 
-		// Need the header row for column name mapping
 		var headerRow = await provider.GetRowByIndexAsync(schema.TableName, 1);
 		if (headerRow == null) return default;
 		var headers = headerRow.Select(h => h?.ToString() ?? string.Empty).ToList();
@@ -172,8 +168,6 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 			EntitySchema? relatedSchema;
 			if (!allSchemas.TryGetValue(relatedTableName, out relatedSchema))
 			{
-				// Fallback: match by ClassName when table name uses a different convention
-				// (e.g. fluent API HasSheetName("Products") vs. EntityMapper returning "Product")
 				relatedSchema = allSchemas.Values.FirstOrDefault(s => s.ClassName == targetType.Name);
 				if (relatedSchema == null) continue;
 			}
@@ -282,7 +276,6 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 
 			if (pkColumn != null)
 			{
-				// Batch path: read MAX(id) once, assign IDs locally, append all rows in 1 API call
 				int nextId = await provider.GetMaxIdAsync(schema.TableName) + 1;
 				var batchRows = new List<IList<object>>(toAdd.Count);
 				var pkProp = typeof(T).GetProperty(pkColumn.PropertyName);
@@ -296,7 +289,6 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 			}
 			else
 			{
-				// No PK — batch append without ID assignment
 				var batchRows = toAdd.Select(item => EntityMapper.MapToRow(item.Key, schema)).ToList();
 				await provider.AppendRowsAsync(schema.TableName, (IList<IList<object>>)batchRows);
 			}

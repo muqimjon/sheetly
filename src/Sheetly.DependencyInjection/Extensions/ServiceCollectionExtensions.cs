@@ -22,7 +22,6 @@ public static class ServiceCollectionExtensions
 			var options = new SheetsContextOptions<TContext>();
 			configure?.Invoke(options);
 
-			// Try constructor injection (EF Core-style) first
 			var ctorWithOptions = typeof(TContext)
 				.GetConstructor([typeof(SheetsContextOptions<TContext>)]);
 
@@ -34,7 +33,6 @@ public static class ServiceCollectionExtensions
 			}
 			else
 			{
-				// Fallback: parameterless constructor + provider passed to InitializeAsync
 				context = (TContext)Activator.CreateInstance(typeof(TContext), nonPublic: true)!;
 				if (options.Provider != null)
 					context.InitializeAsync(options.Provider).GetAwaiter().GetResult();

@@ -15,12 +15,7 @@ public class GoogleSheetProvider : ISheetsProvider
 	private readonly string _spreadsheetId;
 	private int _serviceIndex = -1;
 
-	// ── Sheet metadata cache ────────────────────────────────────────────────
-	// Populated on InitializeAsync(); updated on CreateSheet/DeleteSheet.
-	// Eliminates per-operation Spreadsheets.Get() API calls.
-	private Dictionary<string, int> _sheetCache = []; // name → sheetId
-
-	// ── Retry configuration ───────────────────────────────────────────────────
+	private Dictionary<string, int> _sheetCache = [];
 	private const int MaxRetries = 5;
 	private static readonly TimeSpan InitialRetryDelay = TimeSpan.FromSeconds(2);
 
@@ -61,8 +56,7 @@ public class GoogleSheetProvider : ISheetsProvider
 	{
 		_spreadsheetId = spreadsheetId;
 		using var stream = new FileStream(credentialsPath, FileMode.Open, FileAccess.Read);
-		var json = new StreamReader(stream).ReadToEnd();
-		_services = LoadServicesFromJson(json);
+		_services = LoadServicesFromJson(new StreamReader(stream).ReadToEnd());
 	}
 
 	public GoogleSheetProvider(IConfigurationSection section, string spreadsheetId)
@@ -83,7 +77,6 @@ public class GoogleSheetProvider : ISheetsProvider
 		var trimmed = json.TrimStart();
 		if (trimmed.StartsWith('['))
 		{
-			// Array format: [{...}, {...}, ...]
 			using var doc = JsonDocument.Parse(json);
 			var services = new List<SheetsService>();
 			foreach (var element in doc.RootElement.EnumerateArray())
@@ -93,7 +86,6 @@ public class GoogleSheetProvider : ISheetsProvider
 			return [.. services];
 		}
 
-		// Single object format: {...}
 		return [CreateServiceFromJson(json)];
 	}
 
@@ -119,7 +111,6 @@ public class GoogleSheetProvider : ISheetsProvider
 
 	public async Task DropDatabaseAsync()
 	{
-		// Work from cache — avoids extra Spreadsheets.Get() calls
 		var sheetNames = _sheetCache.Keys.ToList();
 
 		var appSheets = sheetNames
@@ -127,11 +118,10 @@ public class GoogleSheetProvider : ISheetsProvider
 						!t.Equals("Sheet1", StringComparison.OrdinalIgnoreCase))
 			.ToList();
 
-		// If all sheets are app sheets, keep one default sheet
 		if (appSheets.Count == sheetNames.Count && sheetNames.Count > 0)
 		{
 			await CreateSheetAsync("Sheet1", new List<string>());
-			sheetNames = _sheetCache.Keys.ToList(); // refresh from updated cache
+			sheetNames = _sheetCache.Keys.ToList();
 		}
 
 		foreach (var title in sheetNames)
@@ -143,13 +133,6 @@ public class GoogleSheetProvider : ISheetsProvider
 			}
 		}
 	}
-
-	private SheetsService CreateService(GoogleCredential credential) =>
-		new(new BaseClientService.Initializer
-		{
-			HttpClientInitializer = credential,
-			ApplicationName = "Sheetly"
-		});
 
 	public async Task<List<IList<object>>> GetAllRowsAsync(string sheetName)
 	{
@@ -167,17 +150,16 @@ public class GoogleSheetProvider : ISheetsProvider
 
 	public async Task<int> FindRowIndexByKeyAsync(string sheetName, string keyValue)
 	{
-		// Fetch only column A (the PK column) — much less data than GetAllRowsAsync
 		var request = NextService.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!A:A");
 		request.ValueRenderOption = SpreadsheetsResource.ValuesResource.GetRequest.ValueRenderOptionEnum.UNFORMATTEDVALUE;
 		var response = await ExecuteWithRetryAsync(request);
 
 		if (response.Values == null) return -1;
-		for (int i = 1; i < response.Values.Count; i++) // skip header (index 0 = row 1)
+		for (int i = 1; i < response.Values.Count; i++)
 		{
 			var cell = response.Values[i].Count > 0 ? response.Values[i][0]?.ToString() : null;
 			if (cell == keyValue)
-				return i + 1; // 1-based row index
+				return i + 1;
 		}
 		return -1;
 	}

@@ -5,17 +5,14 @@
 /// </summary>
 public class ColumnSchema
 {
-	// Basic properties
 	public string Name { get; set; } = string.Empty;
 	public string PropertyName { get; set; } = string.Empty;
 	public string DataType { get; set; } = string.Empty;
-	public string? ClrType { get; set; } // Full CLR type name (e.g., "System.Int32")
+	public string? ClrType { get; set; }
 
-	// Nullability
 	public bool IsNullable { get; set; } = true;
 	public bool IsRequired { get; set; } = false;
 
-	// Key constraints
 	public bool IsPrimaryKey { get; set; }
 	public bool IsForeignKey { get; set; }
 	public string? ForeignKeyTable { get; set; }
@@ -23,45 +20,36 @@ public class ColumnSchema
 	public ForeignKeyAction OnDelete { get; set; } = ForeignKeyAction.NoAction;
 	public ForeignKeyAction OnUpdate { get; set; } = ForeignKeyAction.NoAction;
 
-	// Unique and Index
 	public bool IsUnique { get; set; }
 	public string? IndexName { get; set; }
 	public bool IsClustered { get; set; }
 
-	// Value constraints
 	public int? MaxLength { get; set; }
 	public int? MinLength { get; set; }
 	public object? DefaultValue { get; set; }
 	public string? DefaultValueSql { get; set; }
 
-	// Numeric constraints
 	public decimal? MinValue { get; set; }
 	public decimal? MaxValue { get; set; }
 	public int? Precision { get; set; }
 	public int? Scale { get; set; }
 
-	// Check constraints
 	public string? CheckConstraint { get; set; }
 	public string? CheckConstraintName { get; set; }
 
-	// Computed columns
 	public bool IsComputed { get; set; }
 	public string? ComputedColumnSql { get; set; }
 	public bool? IsStored { get; set; }
 
-	// Concurrency
 	public bool IsConcurrencyToken { get; set; }
 	public bool IsRowVersion { get; set; }
 
-	// Auto-increment
 	public bool IsAutoIncrement { get; set; }
 	public long? IdentitySeed { get; set; }
 	public long? IdentityIncrement { get; set; }
 
-	// Validation rules (JSON format for complex validations)
 	public string? ValidationRules { get; set; }
 
-	// Additional metadata
 	public string? Comment { get; set; }
 	public string? Collation { get; set; }
 }
@@ -91,9 +79,8 @@ public class EntitySchema
 	public List<IndexSchema> Indexes { get; set; } = [];
 	public List<CheckConstraintSchema> CheckConstraints { get; set; } = [];
 
-	// Table-level options
 	public string? Comment { get; set; }
-	public string? Schema { get; set; } // For database schema (e.g., "dbo")
+	public string? Schema { get; set; }
 	public Dictionary<string, object> AdditionalOptions { get; set; } = [];
 }
 
@@ -106,7 +93,7 @@ public class IndexSchema
 	public List<string> Columns { get; set; } = [];
 	public bool IsUnique { get; set; }
 	public bool IsClustered { get; set; }
-	public string? Filter { get; set; } // For filtered indexes
+	public string? Filter { get; set; }
 }
 
 /// <summary>
