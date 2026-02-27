@@ -14,6 +14,11 @@ public class GoogleSheetProvider : ISheetsProvider
 	private readonly SheetsService _service;
 	private readonly string _spreadsheetId;
 
+	// ── Sheet metadata cache ────────────────────────────────────────────────
+	// Populated on InitializeAsync(); updated on CreateSheet/DeleteSheet.
+	// Eliminates per-operation Spreadsheets.Get() API calls.
+	private Dictionary<string, int> _sheetCache = []; // name → sheetId
+
 	// ── Retry configuration ───────────────────────────────────────────────────
 	private const int MaxRetries = 5;
 	private static readonly TimeSpan InitialRetryDelay = TimeSpan.FromSeconds(2);
@@ -67,36 +72,33 @@ public class GoogleSheetProvider : ISheetsProvider
 
 	public async Task InitializeAsync()
 	{
-		await ExecuteWithRetryAsync(_service.Spreadsheets.Get(_spreadsheetId));
+		var ss = await ExecuteWithRetryAsync(_service.Spreadsheets.Get(_spreadsheetId));
+		_sheetCache = ss.Sheets
+			.Where(s => s.Properties?.Title != null)
+			.ToDictionary(s => s.Properties.Title!, s => (int)(s.Properties.SheetId ?? 0));
 	}
 
 	public async Task DropDatabaseAsync()
 	{
-		var ss = await ExecuteWithRetryAsync(_service.Spreadsheets.Get(_spreadsheetId));
-		var sheetsList = ss.Sheets.ToList();
+		// Work from cache — avoids extra Spreadsheets.Get() calls
+		var sheetNames = _sheetCache.Keys.ToList();
 
-		// Get list of app-related sheets (migration tables and user tables)
-		var appSheets = sheetsList
-			.Where(s => s.Properties.Title.StartsWith("__Sheetly") ||
-						!s.Properties.Title.Equals("Sheet1", StringComparison.OrdinalIgnoreCase))
+		var appSheets = sheetNames
+			.Where(t => t.StartsWith("__Sheetly") ||
+						!t.Equals("Sheet1", StringComparison.OrdinalIgnoreCase))
 			.ToList();
 
 		// If all sheets are app sheets, keep one default sheet
-		if (appSheets.Count == sheetsList.Count && sheetsList.Count > 0)
+		if (appSheets.Count == sheetNames.Count && sheetNames.Count > 0)
 		{
-			// Create a default sheet first
 			await CreateSheetAsync("Sheet1", new List<string>());
-			sheetsList = (await ExecuteWithRetryAsync(_service.Spreadsheets.Get(_spreadsheetId))).Sheets.ToList();
+			sheetNames = _sheetCache.Keys.ToList(); // refresh from updated cache
 		}
 
-		// Delete only app sheets, preserving default/empty sheets
-		foreach (var sheet in sheetsList)
+		foreach (var title in sheetNames)
 		{
-			var title = sheet.Properties.Title;
-
-			// Delete if it's a Sheetly system sheet or not a default sheet
 			if (title.StartsWith("__Sheetly") ||
-				(!title.Equals("Sheet1", StringComparison.OrdinalIgnoreCase) && sheetsList.Count > 1))
+				(!title.Equals("Sheet1", StringComparison.OrdinalIgnoreCase) && sheetNames.Count > 1))
 			{
 				await DeleteSheetAsync(title);
 			}
@@ -159,11 +161,8 @@ public class GoogleSheetProvider : ISheetsProvider
 				new BatchUpdateSpreadsheetRequest { Requests = [deleteRequest] }, _spreadsheetId));
 	}
 
-	public async Task<bool> SheetExistsAsync(string sheetName)
-	{
-		var ss = await ExecuteWithRetryAsync(_service.Spreadsheets.Get(_spreadsheetId));
-		return ss.Sheets.Any(s => s.Properties.Title == sheetName);
-	}
+	public Task<bool> SheetExistsAsync(string sheetName)
+		=> Task.FromResult(_sheetCache.ContainsKey(sheetName));
 
 	public async Task CreateSheetAsync(string sheetName, IList<string> headers)
 	{
@@ -191,6 +190,9 @@ public class GoogleSheetProvider : ISheetsProvider
 		var response = await ExecuteWithRetryAsync(
 			_service.Spreadsheets.BatchUpdate(batchRequest, _spreadsheetId));
 		var sheetId = response.Replies[0].AddSheet.Properties.SheetId;
+
+		// Update cache so subsequent SheetExistsAsync/GetSheetIdInternal are free
+		_sheetCache[sheetName] = (int)(sheetId ?? 0);
 
 		var headerRows = new List<RowData>
 	{
@@ -242,6 +244,7 @@ public class GoogleSheetProvider : ISheetsProvider
 		var request = new Request { DeleteSheet = new DeleteSheetRequest { SheetId = sheetId } };
 		await ExecuteWithRetryAsync(_service.Spreadsheets.BatchUpdate(
 			new BatchUpdateSpreadsheetRequest { Requests = [request] }, _spreadsheetId));
+		_sheetCache.Remove(sheetName);
 	}
 
 	public async Task ClearSheetAsync(string sheetName)
@@ -311,10 +314,11 @@ public class GoogleSheetProvider : ISheetsProvider
 			new BatchUpdateSpreadsheetRequest { Requests = [request] }, _spreadsheetId));
 	}
 
-	private async Task<int?> GetSheetIdInternal(string sheetName)
+	private Task<int?> GetSheetIdInternal(string sheetName)
 	{
-		var ss = await ExecuteWithRetryAsync(_service.Spreadsheets.Get(_spreadsheetId));
-		return ss.Sheets.FirstOrDefault(s => s.Properties.Title == sheetName)?.Properties.SheetId;
+		if (_sheetCache.TryGetValue(sheetName, out var id))
+			return Task.FromResult<int?>(id);
+		return Task.FromResult<int?>(null);
 	}
 
 	public void Dispose() => _service?.Dispose();
