@@ -1,4 +1,4 @@
-﻿using Google.Apis.Auth.OAuth2;
+using Google.Apis.Auth.OAuth2;
 using Google.Apis.Requests;
 using Google.Apis.Services;
 using Google.Apis.Sheets.v4;
@@ -11,8 +11,9 @@ namespace Sheetly.Google;
 
 public class GoogleSheetProvider : ISheetsProvider
 {
-	private readonly SheetsService _service;
+	private readonly SheetsService[] _services;
 	private readonly string _spreadsheetId;
+	private int _serviceIndex = -1;
 
 	// ── Sheet metadata cache ────────────────────────────────────────────────
 	// Populated on InitializeAsync(); updated on CreateSheet/DeleteSheet.
@@ -22,6 +23,13 @@ public class GoogleSheetProvider : ISheetsProvider
 	// ── Retry configuration ───────────────────────────────────────────────────
 	private const int MaxRetries = 5;
 	private static readonly TimeSpan InitialRetryDelay = TimeSpan.FromSeconds(2);
+
+	/// <summary>
+	/// Returns the next service in round-robin order. With N accounts, effective
+	/// write limit is N × 60 req/min instead of 60 req/min for a single account.
+	/// </summary>
+	private SheetsService NextService =>
+		_services[Math.Abs(Interlocked.Increment(ref _serviceIndex) % _services.Length)];
 
 	/// <summary>
 	/// Executes a Google API request with automatic exponential-backoff retry
@@ -53,10 +61,8 @@ public class GoogleSheetProvider : ISheetsProvider
 	{
 		_spreadsheetId = spreadsheetId;
 		using var stream = new FileStream(credentialsPath, FileMode.Open, FileAccess.Read);
-#pragma warning disable CS0618
-		var credential = GoogleCredential.FromStream(stream).CreateScoped(SheetsService.Scope.Spreadsheets);
-#pragma warning restore CS0618
-		_service = CreateService(credential);
+		var json = new StreamReader(stream).ReadToEnd();
+		_services = LoadServicesFromJson(json);
 	}
 
 	public GoogleSheetProvider(IConfigurationSection section, string spreadsheetId)
@@ -64,15 +70,48 @@ public class GoogleSheetProvider : ISheetsProvider
 		_spreadsheetId = spreadsheetId;
 		var dict = section.GetChildren().ToDictionary(c => c.Key, c => c.Value);
 		var json = JsonSerializer.Serialize(dict);
+		_services = [CreateServiceFromJson(json)];
+	}
+
+	/// <summary>
+	/// Parses credentials JSON as either a single object <c>{}</c> or an array <c>[{},{}]</c>.
+	/// Each element becomes a separate <see cref="SheetsService"/>, enabling round-robin
+	/// rotation to multiply the effective API quota.
+	/// </summary>
+	private static SheetsService[] LoadServicesFromJson(string json)
+	{
+		var trimmed = json.TrimStart();
+		if (trimmed.StartsWith('['))
+		{
+			// Array format: [{...}, {...}, ...]
+			using var doc = JsonDocument.Parse(json);
+			var services = new List<SheetsService>();
+			foreach (var element in doc.RootElement.EnumerateArray())
+				services.Add(CreateServiceFromJson(element.GetRawText()));
+			if (services.Count == 0)
+				throw new InvalidOperationException("credentials.json array is empty.");
+			return [.. services];
+		}
+
+		// Single object format: {...}
+		return [CreateServiceFromJson(json)];
+	}
+
+	private static SheetsService CreateServiceFromJson(string json)
+	{
 #pragma warning disable CS0618
 		var credential = GoogleCredential.FromJson(json).CreateScoped(SheetsService.Scope.Spreadsheets);
 #pragma warning restore CS0618
-		_service = CreateService(credential);
+		return new SheetsService(new BaseClientService.Initializer
+		{
+			HttpClientInitializer = credential,
+			ApplicationName = "Sheetly"
+		});
 	}
 
 	public async Task InitializeAsync()
 	{
-		var ss = await ExecuteWithRetryAsync(_service.Spreadsheets.Get(_spreadsheetId));
+		var ss = await ExecuteWithRetryAsync(NextService.Spreadsheets.Get(_spreadsheetId));
 		_sheetCache = ss.Sheets
 			.Where(s => s.Properties?.Title != null)
 			.ToDictionary(s => s.Properties.Title!, s => (int)(s.Properties.SheetId ?? 0));
@@ -105,33 +144,31 @@ public class GoogleSheetProvider : ISheetsProvider
 		}
 	}
 
-	private SheetsService CreateService(GoogleCredential credential)
-	{
-		return new SheetsService(new BaseClientService.Initializer
+	private SheetsService CreateService(GoogleCredential credential) =>
+		new(new BaseClientService.Initializer
 		{
 			HttpClientInitializer = credential,
 			ApplicationName = "Sheetly"
 		});
-	}
 
 	public async Task<List<IList<object>>> GetAllRowsAsync(string sheetName)
 	{
 		var response = await ExecuteWithRetryAsync(
-			_service.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'"));
+			NextService.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'"));
 		return response.Values?.ToList() ?? [];
 	}
 
 	public async Task<IList<object>?> GetRowByIndexAsync(string sheetName, int rowIndex)
 	{
 		var response = await ExecuteWithRetryAsync(
-			_service.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!{rowIndex}:{rowIndex}"));
+			NextService.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!{rowIndex}:{rowIndex}"));
 		return response.Values?.FirstOrDefault();
 	}
 
 	public async Task<int> FindRowIndexByKeyAsync(string sheetName, string keyValue)
 	{
 		// Fetch only column A (the PK column) — much less data than GetAllRowsAsync
-		var request = _service.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!A:A");
+		var request = NextService.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!A:A");
 		request.ValueRenderOption = SpreadsheetsResource.ValuesResource.GetRequest.ValueRenderOptionEnum.UNFORMATTEDVALUE;
 		var response = await ExecuteWithRetryAsync(request);
 
@@ -148,7 +185,7 @@ public class GoogleSheetProvider : ISheetsProvider
 	public async Task AppendRowAsync(string sheetName, IList<object> row)
 	{
 		var vr = new ValueRange { Values = new List<IList<object>> { row } };
-		var request = _service.Spreadsheets.Values.Append(vr, _spreadsheetId, $"'{sheetName}'!A1");
+		var request = NextService.Spreadsheets.Values.Append(vr, _spreadsheetId, $"'{sheetName}'!A1");
 		request.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
 		await ExecuteWithRetryAsync(request);
 	}
@@ -167,7 +204,7 @@ public class GoogleSheetProvider : ISheetsProvider
 		};
 
 		var vr = new ValueRange { Values = new List<IList<object>> { rowWithFormula } };
-		var request = _service.Spreadsheets.Values.Append(vr, _spreadsheetId, $"'{sheetName}'!A1");
+		var request = NextService.Spreadsheets.Values.Append(vr, _spreadsheetId, $"'{sheetName}'!A1");
 		request.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
 		var response = await ExecuteWithRetryAsync(request);
 
@@ -200,7 +237,7 @@ public class GoogleSheetProvider : ISheetsProvider
 	public async Task AppendRowsAsync(string sheetName, IList<IList<object>> rows)
 	{
 		var vr = new ValueRange { Values = rows };
-		var request = _service.Spreadsheets.Values.Append(vr, _spreadsheetId, $"'{sheetName}'!A1");
+		var request = NextService.Spreadsheets.Values.Append(vr, _spreadsheetId, $"'{sheetName}'!A1");
 		request.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
 		await ExecuteWithRetryAsync(request);
 	}
@@ -212,7 +249,7 @@ public class GoogleSheetProvider : ISheetsProvider
 	/// </summary>
 	public async Task<int> GetMaxIdAsync(string sheetName)
 	{
-		var request = _service.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!A2:A");
+		var request = NextService.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!A2:A");
 		request.ValueRenderOption = SpreadsheetsResource.ValuesResource.GetRequest.ValueRenderOptionEnum.UNFORMATTEDVALUE;
 		var response = await ExecuteWithRetryAsync(request);
 		int max = 0;
@@ -228,7 +265,7 @@ public class GoogleSheetProvider : ISheetsProvider
 		var endCol = GetColumnLetter(row.Count);
 		var range = $"'{sheetName}'!A{rowIndex}:{endCol}{rowIndex}";
 		var valueRange = new ValueRange { Values = new List<IList<object>> { row } };
-		var request = _service.Spreadsheets.Values.Update(valueRange, _spreadsheetId, range);
+		var request = NextService.Spreadsheets.Values.Update(valueRange, _spreadsheetId, range);
 		request.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
 		await ExecuteWithRetryAsync(request);
 	}
@@ -244,7 +281,7 @@ public class GoogleSheetProvider : ISheetsProvider
 			}
 		};
 		await ExecuteWithRetryAsync(
-			_service.Spreadsheets.BatchUpdate(
+			NextService.Spreadsheets.BatchUpdate(
 				new BatchUpdateSpreadsheetRequest { Requests = [deleteRequest] }, _spreadsheetId));
 	}
 
@@ -275,7 +312,7 @@ public class GoogleSheetProvider : ISheetsProvider
 		};
 
 		var response = await ExecuteWithRetryAsync(
-			_service.Spreadsheets.BatchUpdate(batchRequest, _spreadsheetId));
+			NextService.Spreadsheets.BatchUpdate(batchRequest, _spreadsheetId));
 		var sheetId = response.Replies[0].AddSheet.Properties.SheetId;
 
 		// Update cache so subsequent SheetExistsAsync/GetSheetIdInternal are free
@@ -320,7 +357,7 @@ public class GoogleSheetProvider : ISheetsProvider
 			}
 		};
 
-		await ExecuteWithRetryAsync(_service.Spreadsheets.BatchUpdate(
+		await ExecuteWithRetryAsync(NextService.Spreadsheets.BatchUpdate(
 			new BatchUpdateSpreadsheetRequest { Requests = [updateCellsRequest] }, _spreadsheetId));
 	}
 
@@ -329,7 +366,7 @@ public class GoogleSheetProvider : ISheetsProvider
 		var sheetId = await GetSheetIdInternal(sheetName);
 		if (sheetId == null) return;
 		var request = new Request { DeleteSheet = new DeleteSheetRequest { SheetId = sheetId } };
-		await ExecuteWithRetryAsync(_service.Spreadsheets.BatchUpdate(
+		await ExecuteWithRetryAsync(NextService.Spreadsheets.BatchUpdate(
 			new BatchUpdateSpreadsheetRequest { Requests = [request] }, _spreadsheetId));
 		_sheetCache.Remove(sheetName);
 	}
@@ -337,13 +374,13 @@ public class GoogleSheetProvider : ISheetsProvider
 	public async Task ClearSheetAsync(string sheetName)
 	{
 		await ExecuteWithRetryAsync(
-			_service.Spreadsheets.Values.Clear(new ClearValuesRequest(), _spreadsheetId, $"'{sheetName}'!A2:ZZ"));
+			NextService.Spreadsheets.Values.Clear(new ClearValuesRequest(), _spreadsheetId, $"'{sheetName}'!A2:ZZ"));
 	}
 
 	public async Task UpdateValueAsync(string sheetName, string range, object value)
 	{
 		var vr = new ValueRange { Values = [[value]] };
-		var req = _service.Spreadsheets.Values.Update(vr, _spreadsheetId, $"'{sheetName}'!{range}");
+		var req = NextService.Spreadsheets.Values.Update(vr, _spreadsheetId, $"'{sheetName}'!{range}");
 		req.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
 		await ExecuteWithRetryAsync(req);
 	}
@@ -351,7 +388,7 @@ public class GoogleSheetProvider : ISheetsProvider
 	public async Task<object?> GetValueAsync(string sheetName, string range)
 	{
 		var response = await ExecuteWithRetryAsync(
-			_service.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!{range}"));
+			NextService.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!{range}"));
 		return response.Values?.FirstOrDefault()?.FirstOrDefault();
 	}
 
@@ -367,7 +404,7 @@ public class GoogleSheetProvider : ISheetsProvider
 				Fields = "hidden"
 			}
 		};
-		await ExecuteWithRetryAsync(_service.Spreadsheets.BatchUpdate(
+		await ExecuteWithRetryAsync(NextService.Spreadsheets.BatchUpdate(
 			new BatchUpdateSpreadsheetRequest { Requests = [request] }, _spreadsheetId));
 	}
 
@@ -382,7 +419,7 @@ public class GoogleSheetProvider : ISheetsProvider
 				Rule = new DataValidationRule { Condition = new BooleanCondition { Type = "NOT_BLANK" }, InputMessage = message, Strict = true }
 			}
 		};
-		await ExecuteWithRetryAsync(_service.Spreadsheets.BatchUpdate(
+		await ExecuteWithRetryAsync(NextService.Spreadsheets.BatchUpdate(
 			new BatchUpdateSpreadsheetRequest { Requests = [request] }, _spreadsheetId));
 	}
 
@@ -397,7 +434,7 @@ public class GoogleSheetProvider : ISheetsProvider
 				Rule = new DataValidationRule { Condition = new BooleanCondition { Type = "BOOLEAN" }, ShowCustomUi = true }
 			}
 		};
-		await ExecuteWithRetryAsync(_service.Spreadsheets.BatchUpdate(
+		await ExecuteWithRetryAsync(NextService.Spreadsheets.BatchUpdate(
 			new BatchUpdateSpreadsheetRequest { Requests = [request] }, _spreadsheetId));
 	}
 
@@ -408,7 +445,11 @@ public class GoogleSheetProvider : ISheetsProvider
 		return Task.FromResult<int?>(null);
 	}
 
-	public void Dispose() => _service?.Dispose();
+	public void Dispose()
+	{
+		foreach (var svc in _services)
+			svc?.Dispose();
+	}
 
 	/// <summary>
 	/// Converts 1-based column count to column letter (1=A, 26=Z, 27=AA, etc.)
