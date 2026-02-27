@@ -54,7 +54,7 @@ context.Products.Add(new Product { Name = "Laptop", Price = 1200 });
 await context.SaveChangesAsync();
 
 var products = await context.Products
-    .Include("Category")
+    .Include(p => p.Category)
     .ToListAsync();
 ```
 
@@ -65,9 +65,12 @@ var products = await context.Products
 ### 🎯 **EF Core-Style API**
 - `SheetsContext` and `SheetsSet<T>` — familiar patterns
 - `Add()`, `Update()`, `Remove()`, `SaveChangesAsync()`
-- `Include()` for eager loading
+- **Automatic change tracking** — modify entities and call `SaveChangesAsync()` without explicit `Update()`
+- `Include()` with **string** and **expression-based** overloads (`Include(p => p.Category)`)
 - `AsNoTracking()` for read-only queries
 - `FindAsync()`, `FirstOrDefaultAsync()`, `Where()`, `CountAsync()`, `AnyAsync()`
+- `CancellationToken` support on `SaveChangesAsync()`
+- `IAsyncDisposable` — use `await using` for automatic cleanup
 
 ### 🔄 **Code-First Migrations**
 - C# migration files with Up/Down methods
@@ -90,10 +93,14 @@ dotnet sheetly database update
 - Column mapping (`HasColumnName()`)
 - Local validation before API calls
 
-### 🛡️ **Schema Tracking**
+### 🛡️ **Schema Tracking & Performance**
 - Hidden **\_\_SheetlySchema\_\_** sheet stores all metadata
 - Hidden **\_\_SheetlyMigrationsHistory\_\_** tracks applied migrations
+- **Batch operations** — adding N entities uses a single API call
+- **In-memory sheet metadata cache** — `SheetExistsAsync` costs 0 API calls after init
+- **Optimized `FindAsync`** — scans only the PK column instead of full data
 - Automatic retry with exponential backoff on rate limits
+- **Multiple credentials rotation** — distribute API quota across service accounts
 
 ### 🧰 **Professional CLI**
 ```bash
@@ -228,14 +235,13 @@ context.Products.Add(product);
 await context.SaveChangesAsync();
 
 // Query with Include
-var products = await context.Products.Include("Category").ToListAsync();
+var products = await context.Products.Include(p => p.Category).ToListAsync();
 
 foreach (var p in products)
     Console.WriteLine($"{p.Title} - ${p.Price} - {p.Category.Name}");
 
-// Update
+// Update (auto change tracking — no explicit Update() needed)
 product.Price = 1100;
-context.Products.Update(product);
 await context.SaveChangesAsync();
 
 // Delete
@@ -274,6 +280,17 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 ### **ASP.NET Core Integration**
 
 ```csharp
+// Parameterless constructor (classic)
+builder.Services.AddSheetsContext<MyAppContext>(options =>
+    options.UseGoogleSheets("credentials.json", "spreadsheet-id"));
+
+// Options constructor (EF Core-style)
+public class MyAppContext : SheetsContext
+{
+    public MyAppContext(SheetsContextOptions<MyAppContext> options) : base(options) { }
+    public SheetsSet<Product> Products { get; set; }
+}
+
 builder.Services.AddSheetsContext<MyAppContext>(options =>
     options.UseGoogleSheets("credentials.json", "spreadsheet-id"));
 ```
@@ -292,6 +309,44 @@ var first = await context.Products.FirstOrDefaultAsync(p => p.Price > 100);
 var filtered = await context.Products.Where(p => p.CategoryId == 1);
 var count = await context.Products.CountAsync();
 var any = await context.Products.AnyAsync(p => p.Price > 0);
+```
+
+### **Expression-Based Include**
+
+```csharp
+// Type-safe — compile-time validation
+var products = await context.Products.Include(p => p.Category).ToListAsync();
+var categories = await context.Categories.Include(c => c.Products).ToListAsync();
+
+// String-based still supported
+var products2 = await context.Products.Include("Category").ToListAsync();
+```
+
+### **Automatic Change Tracking**
+
+```csharp
+var products = await context.Products.ToListAsync();
+products.First().Price = 999;
+
+// No need for context.Products.Update(product) — changes are auto-detected
+await context.SaveChangesAsync();
+```
+
+### **Multiple Credentials (API Quota Rotation)**
+
+```csharp
+// credentials.json can be a single object or an array:
+// [{ "type": "service_account", ... }, { "type": "service_account", ... }]
+// Each API call rotates to the next credential (round-robin)
+// Effective limit: N accounts × 60 req/min = N×60 req/min
+options.UseGoogleSheets("credentials.json", "spreadsheet-id");
+```
+
+### **CancellationToken Support**
+
+```csharp
+var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+await context.SaveChangesAsync(cts.Token);
 ```
 
 ---
