@@ -194,7 +194,10 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 	private async Task EnsureSystemTablesExistAsync()
 	{
 		if (!await provider.SheetExistsAsync(HistoryTable))
+		{
 			await provider.CreateSheetAsync(HistoryTable, ["MigrationId", "AppliedAt", "ProductVersion"]);
+			await provider.HideSheetAsync(HistoryTable);
+		}
 
 		if (!await provider.SheetExistsAsync(SchemaTable))
 		{
