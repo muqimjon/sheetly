@@ -185,6 +185,10 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 
 	public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
 	{
+		if (Provider == null)
+			throw new InvalidOperationException(
+				"Context not initialized. Call InitializeAsync() first.");
+
 		foreach (var set in sets.Values)
 		{
 			set.GetType()
