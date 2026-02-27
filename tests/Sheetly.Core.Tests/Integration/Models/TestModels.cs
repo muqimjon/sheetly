@@ -1,7 +1,5 @@
 namespace Sheetly.Core.Tests.Integration.Models;
 
-// ── Domain models used across all integration tests ─────────────────────────
-
 public class Category
 {
 	public int Id { get; set; }
