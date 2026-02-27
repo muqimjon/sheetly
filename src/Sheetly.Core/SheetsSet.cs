@@ -2,6 +2,7 @@ using Sheetly.Core.Abstractions;
 using Sheetly.Core.Mapping;
 using Sheetly.Core.Migration;
 using System.Collections;
+using System.Linq.Expressions;
 using System.Reflection;
 using System.Text.Json;
 
@@ -24,6 +25,18 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 	public SheetsSet<T> Include(string propertyName)
 	{
 		_includes.Add(propertyName);
+		return this;
+	}
+
+	/// <summary>
+	/// Strongly-typed navigation include, mirroring EF Core's expression-based overload:
+	/// <code>context.Orders.Include(o => o.Customer)</code>
+	/// The property name is extracted at compile time — no magic strings needed.
+	/// </summary>
+	public SheetsSet<T> Include<TProperty>(Expression<Func<T, TProperty>> navigationExpression)
+	{
+		if (navigationExpression.Body is MemberExpression member)
+			_includes.Add(member.Member.Name);
 		return this;
 	}
 
