@@ -1,6 +1,5 @@
 name: Release Sheetly.Google
 
-# Triggered by tags like: google-v1.1.0
 on:
   push:
     tags:

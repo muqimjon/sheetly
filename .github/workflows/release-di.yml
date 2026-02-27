@@ -1,6 +1,5 @@
 name: Release Sheetly.DependencyInjection
 
-# Triggered by tags like: di-v1.1.0
 on:
   push:
     tags:

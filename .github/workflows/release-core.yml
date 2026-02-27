@@ -1,6 +1,5 @@
 name: Release Sheetly.Core
 
-# Triggered by tags like: core-v1.1.0
 on:
   push:
     tags:

@@ -1,6 +1,5 @@
 name: Release Sheetly.CLI (dotnet-sheetly)
 
-# Triggered by tags like: cli-v1.1.0
 on:
   push:
     tags:
