@@ -10,7 +10,7 @@ using System.Reflection;
 
 namespace Sheetly.Core;
 
-public abstract class SheetsContext : IDisposable
+public abstract class SheetsContext : IDisposable, IAsyncDisposable
 {
 	public ISheetsProvider Provider { get; private set; } = default!;
 	public DatabaseFacade Database { get; private set; } = default!;
@@ -176,7 +176,7 @@ public abstract class SheetsContext : IDisposable
 		}
 	}
 
-	public async Task<int> SaveChangesAsync()
+	public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
 	{
 		// Auto change detection: promote Unchanged → Modified for mutated entities
 		foreach (var set in sets.Values)
@@ -241,6 +241,8 @@ public abstract class SheetsContext : IDisposable
 
 		if (allDeletedEntities.Count > 0)
 			await ValidateForeignKeyConstraintsOnDelete(allDeletedEntities);
+
+		cancellationToken.ThrowIfCancellationRequested();
 
 		int total = 0;
 		foreach (var set in sets.Values)
@@ -451,6 +453,15 @@ public abstract class SheetsContext : IDisposable
 	{
 		if (disposing)
 			Provider?.Dispose();
+	}
+
+	public async ValueTask DisposeAsync()
+	{
+		if (Provider is IAsyncDisposable asyncDisposable)
+			await asyncDisposable.DisposeAsync();
+		else
+			Provider?.Dispose();
+		GC.SuppressFinalize(this);
 	}
 
 	~SheetsContext()
