@@ -87,6 +87,27 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 		return Task.CompletedTask;
 	}
 
+	public Task<int> AppendRowAndGetIdAsync(string sheetName, IList<object> row)
+	{
+		if (!_sheets.TryGetValue(sheetName, out var rows))
+			return Task.FromResult(1);
+
+		// Compute MAX(Id) + 1 in-memory (mirrors the Sheets formula)
+		int maxId = 0;
+		for (int i = 1; i < rows.Count; i++) // skip header at index 0
+		{
+			if (rows[i].Count > 0 && int.TryParse(rows[i][0]?.ToString(), out var id) && id > maxId)
+				maxId = id;
+		}
+		int nextId = maxId + 1;
+
+		var newRow = row.ToList();
+		if (newRow.Count > 0)
+			newRow[0] = nextId;
+		rows.Add(newRow);
+		return Task.FromResult(nextId);
+	}
+
 	public Task UpdateRowAsync(string sheetName, int rowIndex, IList<object> row)
 	{
 		if (_sheets.TryGetValue(sheetName, out var rows))

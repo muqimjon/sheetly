@@ -136,6 +136,46 @@ public class GoogleSheetProvider : ISheetsProvider
 		await ExecuteWithRetryAsync(request);
 	}
 
+	/// <summary>
+	/// Appends a row where the first cell is a formula =IFERROR(MAX(INDIRECT("'Table'!A2:A"))+1,1).
+	/// Returns the computed integer ID after reading the cell back.
+	/// Reduces ID management from 5 API calls to 2 (append + read).
+	/// </summary>
+	public async Task<int> AppendRowAndGetIdAsync(string sheetName, IList<object> row)
+	{
+		// Replace the first element with a MAX+1 formula so Sheets computes the next ID atomically
+		var rowWithFormula = new List<object>(row)
+		{
+			[0] = $"=IFERROR(MAX(INDIRECT(\"'{sheetName}'!A2:A\"))+1,1)"
+		};
+
+		var vr = new ValueRange { Values = new List<IList<object>> { rowWithFormula } };
+		var request = _service.Spreadsheets.Values.Append(vr, _spreadsheetId, $"'{sheetName}'!A1");
+		request.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
+		var response = await ExecuteWithRetryAsync(request);
+
+		// Extract the row number from the updated range (e.g. "'Products'!A5:E5" → 5)
+		var updatedRange = response.Updates?.UpdatedRange ?? string.Empty;
+		var rowNumber = ExtractRowNumberFromRange(updatedRange);
+
+		// Read back the computed ID value
+		var idValue = await GetValueAsync(sheetName, $"A{rowNumber}");
+		return idValue != null && int.TryParse(idValue.ToString(), out var id) ? id : rowNumber - 1;
+	}
+
+	/// <summary>Parses the row number from a Sheets range string like "'Table'!A5:E5" or "A5:E5".</summary>
+	private static int ExtractRowNumberFromRange(string range)
+	{
+		// Strip sheet prefix if present
+		var colonIdx = range.IndexOf('!');
+		var cellPart = colonIdx >= 0 ? range[(colonIdx + 1)..] : range;
+		// cellPart looks like "A5:E5" — take the start cell
+		var startCell = cellPart.Split(':')[0];
+		// Strip column letters
+		var digits = new string(startCell.SkipWhile(c => !char.IsDigit(c)).ToArray());
+		return int.TryParse(digits, out var row) ? row : 2;
+	}
+
 	public async Task UpdateRowAsync(string sheetName, int rowIndex, IList<object> row)
 	{
 		var endCol = GetColumnLetter(row.Count);

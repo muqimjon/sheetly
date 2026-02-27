@@ -13,8 +13,6 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 	private readonly List<string> _includes = [];
 	private bool _asNoTracking = false;
 
-	private const string SchemaTable = "__SheetlySchema__";
-
 	public SheetsSet<T> AsNoTracking()
 	{
 		_asNoTracking = true;
@@ -231,16 +229,21 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		if (toAdd.Count > 0)
 		{
 			var pkColumn = schema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
-			int nextId = pkColumn != null ? await GetAndIncrementIdFromCentralSchema(schema.TableName, toAdd.Count) : 0;
 
 			foreach (var item in toAdd)
 			{
+				int assignedId;
 				if (pkColumn != null)
 				{
+					// Formula-based atomic ID: IFERROR(MAX(A2:A)+1,1) — 2 API calls vs old 5
+					assignedId = await provider.AppendRowAndGetIdAsync(schema.TableName, EntityMapper.MapToRow(item.Key, schema));
 					var prop = typeof(T).GetProperty(pkColumn.PropertyName);
-					prop?.SetValue(item.Key, Convert.ChangeType(nextId++, prop.PropertyType));
+					prop?.SetValue(item.Key, Convert.ChangeType(assignedId, prop.PropertyType));
 				}
-				await provider.AppendRowAsync(schema.TableName, EntityMapper.MapToRow(item.Key, schema));
+				else
+				{
+					await provider.AppendRowAsync(schema.TableName, EntityMapper.MapToRow(item.Key, schema));
+				}
 				changes++;
 			}
 		}
@@ -248,62 +251,6 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		_trackedEntities.Clear();
 		_entityRowIndexes.Clear();
 		return changes;
-	}
-
-	private async Task<int> GetAndIncrementIdFromCentralSchema(string tableName, int count)
-	{
-		if (!await provider.SheetExistsAsync(SchemaTable))
-			throw new Exception("__SheetlySchema__ table not found.");
-
-		var rows = await provider.GetAllRowsAsync(SchemaTable);
-		int schemaIdValue = 0;
-		var pkPropertyName = schema.Columns.First(c => c.IsPrimaryKey).PropertyName;
-
-		int schemaRowIndex = -1;
-		for (int i = 1; i < rows.Count; i++)
-		{
-			if (rows[i].Count > 2 &&
-				rows[i][1]?.ToString() == tableName &&
-				rows[i][2]?.ToString() == pkPropertyName)
-			{
-				schemaRowIndex = i;
-				if (rows[i].Count > 28)
-					_ = int.TryParse(rows[i][28]?.ToString(), out schemaIdValue);
-				break;
-			}
-		}
-
-		// Also check actual data sheet for MAX(ID) - handles restart scenarios
-		int maxIdInSheet = 0;
-		if (await provider.SheetExistsAsync(tableName))
-		{
-			var dataRows = await provider.GetAllRowsAsync(tableName);
-			if (dataRows.Count > 1) // Has data beyond header
-			{
-				// Find ID column index (first column is typically ID)
-				for (int i = 1; i < dataRows.Count; i++)
-				{
-					if (dataRows[i].Count > 0 && int.TryParse(dataRows[i][0]?.ToString(), out int id))
-					{
-						if (id > maxIdInSheet)
-							maxIdInSheet = id;
-					}
-				}
-			}
-		}
-
-		int currentId = Math.Max(schemaIdValue, maxIdInSheet);
-
-		int nextId = currentId + 1;
-
-		int newSchemaValue = nextId + count - 1;
-
-		if (schemaRowIndex >= 0)
-		{
-			await provider.UpdateValueAsync(SchemaTable, $"AC{schemaRowIndex + 1}", newSchemaValue);
-		}
-
-		return nextId;
 	}
 }
 
