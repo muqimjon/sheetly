@@ -24,7 +24,7 @@ public class GoogleSheetProvider : ISheetsProvider
 	/// write limit is N × 60 req/min instead of 60 req/min for a single account.
 	/// </summary>
 	private SheetsService NextService =>
-		_services[Math.Abs(Interlocked.Increment(ref _serviceIndex) % _services.Length)];
+		_services[(Interlocked.Increment(ref _serviceIndex) & 0x7FFFFFFF) % _services.Length];
 
 	/// <summary>
 	/// Executes a Google API request with automatic exponential-backoff retry
