@@ -103,16 +103,32 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		var pkColumn = schema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
 		if (pkColumn == null) return default;
 
-		var all = await ToListAsync();
-		var pkProp = typeof(T).GetProperty(pkColumn.PropertyName);
-		if (pkProp == null) return default;
+		var keyStr = keyValue.ToString()!;
 
-		return all.FirstOrDefault(e =>
+		// Optimization: scan only the PK column to find the row, then fetch just that row.
+		// 2 API calls (key-column scan + single row) vs GetAllRowsAsync (1 call but all data).
+		// For large datasets this is significantly faster.
+		var rowIndex = await provider.FindRowIndexByKeyAsync(schema.TableName, keyStr);
+		if (rowIndex < 0) return default;
+
+		var rowData = await provider.GetRowByIndexAsync(schema.TableName, rowIndex);
+		if (rowData == null) return default;
+
+		// Need the header row for column name mapping
+		var headerRow = await provider.GetRowByIndexAsync(schema.TableName, 1);
+		if (headerRow == null) return default;
+		var headers = headerRow.Select(h => h?.ToString() ?? string.Empty).ToList();
+
+		var entity = EntityMapper.MapFromRow<T>(rowData, headers, schema);
+
+		if (!_asNoTracking && !_trackedEntities.ContainsKey(entity))
 		{
-			var val = pkProp.GetValue(e);
-			if (val == null) return false;
-			return val.ToString() == keyValue.ToString();
-		});
+			_trackedEntities[entity] = EntityState.Unchanged;
+			_entityRowIndexes[entity] = rowIndex;
+			_snapshots[entity] = JsonSerializer.Serialize(entity);
+		}
+
+		return entity;
 	}
 
 	public async Task<int> CountAsync(Func<T, bool>? predicate = null)

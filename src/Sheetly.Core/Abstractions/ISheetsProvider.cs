@@ -7,6 +7,11 @@ public interface ISheetsProvider : IDisposable
 
 	Task<List<IList<object>>> GetAllRowsAsync(string sheetName);
 	Task<IList<object>?> GetRowByIndexAsync(string sheetName, int rowIndex);
+	/// <summary>
+	/// Reads only column A to find the 1-based row index of a matching key value.
+	/// Returns -1 if not found. Uses 2 API calls total (key column + full row).
+	/// </summary>
+	Task<int> FindRowIndexByKeyAsync(string sheetName, string keyValue);
 	Task AppendRowAsync(string sheetName, IList<object> row);
 	Task AppendRowsAsync(string sheetName, IList<IList<object>> rows);
 	Task<int> AppendRowAndGetIdAsync(string sheetName, IList<object> row);

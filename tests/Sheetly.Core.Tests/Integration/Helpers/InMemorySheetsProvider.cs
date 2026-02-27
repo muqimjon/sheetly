@@ -80,6 +80,15 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 		return Task.FromResult<IList<object>?>(null);
 	}
 
+	public Task<int> FindRowIndexByKeyAsync(string sheetName, string keyValue)
+	{
+		if (_sheets.TryGetValue(sheetName, out var rows))
+			for (int i = 1; i < rows.Count; i++) // skip header at index 0
+				if (rows[i].Count > 0 && rows[i][0]?.ToString() == keyValue)
+					return Task.FromResult(i + 1); // 1-based
+		return Task.FromResult(-1);
+	}
+
 	public Task AppendRowAsync(string sheetName, IList<object> row)
 	{
 		if (_sheets.TryGetValue(sheetName, out var rows))

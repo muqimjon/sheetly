@@ -128,6 +128,23 @@ public class GoogleSheetProvider : ISheetsProvider
 		return response.Values?.FirstOrDefault();
 	}
 
+	public async Task<int> FindRowIndexByKeyAsync(string sheetName, string keyValue)
+	{
+		// Fetch only column A (the PK column) — much less data than GetAllRowsAsync
+		var request = _service.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!A:A");
+		request.ValueRenderOption = SpreadsheetsResource.ValuesResource.GetRequest.ValueRenderOptionEnum.UNFORMATTEDVALUE;
+		var response = await ExecuteWithRetryAsync(request);
+
+		if (response.Values == null) return -1;
+		for (int i = 1; i < response.Values.Count; i++) // skip header (index 0 = row 1)
+		{
+			var cell = response.Values[i].Count > 0 ? response.Values[i][0]?.ToString() : null;
+			if (cell == keyValue)
+				return i + 1; // 1-based row index
+		}
+		return -1;
+	}
+
 	public async Task AppendRowAsync(string sheetName, IList<object> row)
 	{
 		var vr = new ValueRange { Values = new List<IList<object>> { row } };
