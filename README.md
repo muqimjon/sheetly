@@ -3,6 +3,7 @@
 [![Sheetly.Core](https://img.shields.io/nuget/v/Sheetly.Core.svg?label=Sheetly.Core&color=2f7f73)](https://www.nuget.org/packages/Sheetly.Core/)
 [![Sheetly.Google](https://img.shields.io/nuget/v/Sheetly.Google.svg?label=Sheetly.Google&color=2f7f73)](https://www.nuget.org/packages/Sheetly.Google/)
 [![Sheetly.Excel](https://img.shields.io/nuget/v/Sheetly.Excel.svg?label=Sheetly.Excel&color=2f7f73)](https://www.nuget.org/packages/Sheetly.Excel/)
+[![Sheetly.DependencyInjection](https://img.shields.io/nuget/v/Sheetly.DependencyInjection.svg?label=Sheetly.DependencyInjection&color=2f7f73)](https://www.nuget.org/packages/Sheetly.DependencyInjection/)
 [![dotnet-sheetly](https://img.shields.io/nuget/v/dotnet-sheetly.svg?label=dotnet-sheetly&color=2f7f73)](https://www.nuget.org/packages/dotnet-sheetly/)
 [![License-MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
