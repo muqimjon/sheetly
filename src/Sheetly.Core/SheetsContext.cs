@@ -178,6 +178,14 @@ public abstract class SheetsContext : IDisposable
 
 	public async Task<int> SaveChangesAsync()
 	{
+		// Auto change detection: promote Unchanged → Modified for mutated entities
+		foreach (var set in sets.Values)
+		{
+			set.GetType()
+				.GetMethod("DetectChanges", BindingFlags.NonPublic | BindingFlags.Instance)
+				?.Invoke(set, null);
+		}
+
 		var allPendingEntities = new List<object>();
 		var allDeletedEntities = new List<object>();
 

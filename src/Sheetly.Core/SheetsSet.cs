@@ -3,6 +3,7 @@ using Sheetly.Core.Mapping;
 using Sheetly.Core.Migration;
 using System.Collections;
 using System.Reflection;
+using System.Text.Json;
 
 namespace Sheetly.Core;
 
@@ -10,6 +11,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 {
 	private readonly Dictionary<T, EntityState> _trackedEntities = [];
 	private readonly Dictionary<T, int> _entityRowIndexes = [];
+	private readonly Dictionary<T, string> _snapshots = [];
 	private readonly List<string> _includes = [];
 	private bool _asNoTracking = false;
 
@@ -37,6 +39,24 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 	internal IEnumerable<object> GetDeletedEntities() =>
 		_trackedEntities.Where(x => x.Value == EntityState.Deleted).Select(x => (object)x.Key);
 
+	/// <summary>
+	/// Compares each Unchanged tracked entity against its original snapshot.
+	/// Automatically promotes entities whose properties have changed to Modified state,
+	/// mirroring EF Core's ChangeTracker.DetectChanges() behaviour.
+	/// </summary>
+	internal void DetectChanges()
+	{
+		foreach (var entry in _trackedEntities.ToList())
+		{
+			if (entry.Value != EntityState.Unchanged) continue;
+			if (!_snapshots.TryGetValue(entry.Key, out var original)) continue;
+
+			var current = JsonSerializer.Serialize(entry.Key);
+			if (current != original)
+				_trackedEntities[entry.Key] = EntityState.Modified;
+		}
+	}
+
 	public async Task<List<T>> ToListAsync()
 	{
 		var rows = await provider.GetAllRowsAsync(schema.TableName);
@@ -54,6 +74,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 			{
 				_trackedEntities[entity] = EntityState.Unchanged;
 				_entityRowIndexes[entity] = i + 1; // A1 notation: row 1=header, row 2=first data
+				_snapshots[entity] = JsonSerializer.Serialize(entity); // snapshot for auto change detection
 			}
 		}
 
@@ -255,6 +276,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 
 		_trackedEntities.Clear();
 		_entityRowIndexes.Clear();
+		_snapshots.Clear();
 		return changes;
 	}
 }
