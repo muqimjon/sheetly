@@ -1,6 +1,5 @@
 using Sheetly.CLI.Helpers;
 using System.CommandLine;
-using System.Reflection;
 
 namespace Sheetly.CLI.Commands;
 

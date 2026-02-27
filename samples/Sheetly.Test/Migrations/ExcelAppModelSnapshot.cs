@@ -20,7 +20,7 @@ public partial class ExcelAppModelSnapshot : MigrationSnapshot
         {
             ModelHash = "erfMXU/RWc/dJ2XYy4Tck5Nw4rMDkzpVEiJA1z5xQro=",
             Version = "1.0.0",
-            LastUpdated = DateTime.Parse("2026-02-27T22:42:51.5688269Z")
+            LastUpdated = DateTime.Parse("2026-02-27T23:15:49.6662861Z")
         };
 
         // Category

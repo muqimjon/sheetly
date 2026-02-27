@@ -1,11 +1,5 @@
 using Sheetly.CLI.Helpers;
-using Sheetly.Core.Configuration;
-using Sheetly.Core.Migration;
-using Sheetly.Core.Migrations;
-using Sheetly.Core.Migrations.Operations;
-using Sheetly.Google;
 using System.CommandLine;
-using System.Reflection;
 
 namespace Sheetly.CLI.Commands;
 
@@ -34,109 +28,29 @@ public class UpdateCommand : Command
 		try
 		{
 			var (assembly, loadContext) = CliHelper.LoadAssemblyIsolated(dllPath);
-			var contextType = assembly.GetExportedTypes().FirstOrDefault(t => CliHelper.IsSubclassOfSheetsContext(t))
-			?? throw new Exception("SheetsContext not found.");
+			var coreAsm = CliHelper.GetCoreAssembly(assembly, loadContext);
+			var contextType = CliHelper.FindContextType(assembly);
 
-			string contextProjectDir = CliHelper.FindProjectRootFromDll(contextType.Assembly.Location);
-			string? connStr = CliHelper.GetConnectionString(contextProjectDir)
-				?? CliHelper.GetConnectionStringFromContext(contextType)
-				?? throw new Exception("ConnectionString not found. Configure OnConfiguring() or add appsettings.json.");
+			string? connStr = CliHelper.GetConnectionString(CliHelper.FindProjectRootFromDll(dllPath));
 
-			// Create provider directly — bypassing full context init so migration checks don't run
-			Console.WriteLine("⏳ Connecting to Google Sheets...");
-			var connString = SheetsConnectionString.Parse(connStr);
-			connString.Validate();
-			var provider = new GoogleSheetProvider(connString.CredentialsPath, connString.SpreadsheetId);
-			await provider.InitializeAsync();
+			Console.WriteLine("⏳ Applying pending migrations...");
+			var json = CliHelper.InvokeDesignTime(coreAsm, "UpdateDatabaseAsync", contextType, connStr);
+			var doc = CliHelper.ParseResult(json);
+			if (doc == null) return;
 
-			var migrationService = new GoogleMigrationService(provider);
+			var root = doc.RootElement;
+			int total = root.GetProperty("total").GetInt32();
 
-			var appliedMigrations = await migrationService.GetAppliedMigrationsAsync();
-
-			// Cross-context: IsSubclassOf(typeof(Migration)) fails — use string-based check
-			var migrationTypes = assembly.GetTypes()
-				.Where(t => CliHelper.IsSubclassOf(t, "Sheetly.Core.Migration.Migration") && !t.IsAbstract)
-				.Select(t => new { Type = t, MigrationId = CliHelper.GetMigrationAttributeId(t) })
-				.Where(x => x.MigrationId != null)
-				.OrderBy(x => x.MigrationId)
-				.ToList();
-
-			if (migrationTypes.Count == 0)
-			{
-				Console.WriteLine("⚠️ No migrations found in the project.");
-				return;
-			}
-
-			var pendingMigrations = migrationTypes
-				.Where(x => !appliedMigrations.Contains(x.MigrationId!))
-				.ToList();
-
-			if (pendingMigrations.Count == 0)
+			if (total == 0)
 			{
 				Console.WriteLine("✅ Database is up to date.");
 				return;
 			}
 
-			Console.WriteLine($"🚀 Found {pendingMigrations.Count} pending migration(s).");
+			foreach (var m in root.GetProperty("applied").EnumerateArray())
+				Console.WriteLine($"  Applied: {m.GetString()}");
 
-			// Cross-context: instantiate snapshot and bridge via JSON
-			var snapshotType = assembly.GetTypes()
-				.FirstOrDefault(t => t.Name.EndsWith("ModelSnapshot") &&
-								CliHelper.IsSubclassOf(t, "Sheetly.Core.Migrations.MigrationSnapshot"));
-			MigrationSnapshot? currentSnapshot = null;
-			if (snapshotType != null)
-			{
-				var isolatedSnap = Activator.CreateInstance(snapshotType);
-				currentSnapshot = CliHelper.BridgeFromJson<MigrationSnapshot>(isolatedSnap);
-			}
-
-			// Load isolated MigrationBuilder once for all pending migrations
-			var coreAsm = CliHelper.GetCoreAssembly(assembly, loadContext);
-			var isolatedMbType = coreAsm.GetType("Sheetly.Core.Migrations.MigrationBuilder")!;
-
-			foreach (var pm in pendingMigrations)
-			{
-				var migrationId = pm.MigrationId!;
-				Console.Write($"Applying {migrationId}... ");
-
-				// Cross-context: invoke Up() with isolated MigrationBuilder, then bridge operations via JSON
-				var migrationObj = Activator.CreateInstance(pm.Type)!;
-				var builder = Activator.CreateInstance(isolatedMbType)!;
-				pm.Type.GetMethod("Up")!.Invoke(migrationObj, [builder]);
-				var isolatedOps = isolatedMbType.GetMethod("GetOperations")!.Invoke(builder, null)!;
-				var operations = CliHelper.BridgeMigrationOperations(isolatedOps);
-
-				if (currentSnapshot != null)
-				{
-					foreach (var op in operations.OfType<CreateTableOperation>())
-					{
-						if (!currentSnapshot.Entities.TryGetValue(op.Name, out var entity)) continue;
-						op.ClassName = entity.ClassName;
-						foreach (var col in op.Columns)
-						{
-							var sc = entity.Columns.FirstOrDefault(c => c.Name == col.Name);
-							if (sc == null) continue;
-							col.IsAutoIncrement = sc.IsAutoIncrement;
-							if (sc.IsPrimaryKey) col.IsUnique = true;
-						}
-					}
-
-					foreach (var op in operations.OfType<AddColumnOperation>())
-					{
-						if (!currentSnapshot.Entities.TryGetValue(op.Table, out var entity)) continue;
-						var sc = entity.Columns.FirstOrDefault(c => c.Name == op.Name);
-						if (sc == null) continue;
-						op.IsAutoIncrement = sc.IsAutoIncrement;
-						op.ClassName = entity.ClassName;
-						if (sc.IsPrimaryKey) op.IsUnique = true;
-					}
-				}
-
-				await migrationService.ApplyMigrationAsync(operations, migrationId);
-				Console.WriteLine("Done.");
-			}
-
-			Console.WriteLine("✅ All migrations applied successfully.");
+			Console.WriteLine($"✅ {total} migration(s) applied successfully.");
 		}
 		catch (Exception ex)
 		{

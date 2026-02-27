@@ -3,8 +3,8 @@ using Sheetly.Core.Migrations.Operations;
 
 namespace Sheetly.Test.Contexts.Migrations;
 
-[Migration("20260227224251_InitialMigrate")]
-public partial class InitialMigrate : Migration
+[Migration("20260227231549_InitialCreate")]
+public partial class InitialCreate : Migration
 {
     public override void Up(MigrationBuilder builder)
     {
