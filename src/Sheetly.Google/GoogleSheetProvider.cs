@@ -176,6 +176,36 @@ public class GoogleSheetProvider : ISheetsProvider
 		return int.TryParse(digits, out var row) ? row : 2;
 	}
 
+	/// <summary>
+	/// Appends multiple rows in a single API call (batch). Use when IDs are already assigned.
+	/// 1 API call regardless of row count.
+	/// </summary>
+	public async Task AppendRowsAsync(string sheetName, IList<IList<object>> rows)
+	{
+		var vr = new ValueRange { Values = rows };
+		var request = _service.Spreadsheets.Values.Append(vr, _spreadsheetId, $"'{sheetName}'!A1");
+		request.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
+		await ExecuteWithRetryAsync(request);
+	}
+
+	/// <summary>
+	/// Returns the current maximum integer value in column A (excluding header).
+	/// Uses VALUES_UNRENDERED to get the raw number even when formulas are present.
+	/// 1 API call.
+	/// </summary>
+	public async Task<int> GetMaxIdAsync(string sheetName)
+	{
+		var request = _service.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!A2:A");
+		request.ValueRenderOption = SpreadsheetsResource.ValuesResource.GetRequest.ValueRenderOptionEnum.UNFORMATTEDVALUE;
+		var response = await ExecuteWithRetryAsync(request);
+		int max = 0;
+		if (response.Values != null)
+			foreach (var row in response.Values)
+				if (row.Count > 0 && int.TryParse(row[0]?.ToString(), out var id) && id > max)
+					max = id;
+		return max;
+	}
+
 	public async Task UpdateRowAsync(string sheetName, int rowIndex, IList<object> row)
 	{
 		var endCol = GetColumnLetter(row.Count);

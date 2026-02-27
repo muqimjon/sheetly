@@ -230,22 +230,27 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		{
 			var pkColumn = schema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
 
-			foreach (var item in toAdd)
+			if (pkColumn != null)
 			{
-				int assignedId;
-				if (pkColumn != null)
+				// Batch path: read MAX(id) once, assign IDs locally, append all rows in 1 API call
+				int nextId = await provider.GetMaxIdAsync(schema.TableName) + 1;
+				var batchRows = new List<IList<object>>(toAdd.Count);
+				var pkProp = typeof(T).GetProperty(pkColumn.PropertyName);
+				foreach (var item in toAdd)
 				{
-					// Formula-based atomic ID: IFERROR(MAX(A2:A)+1,1) — 2 API calls vs old 5
-					assignedId = await provider.AppendRowAndGetIdAsync(schema.TableName, EntityMapper.MapToRow(item.Key, schema));
-					var prop = typeof(T).GetProperty(pkColumn.PropertyName);
-					prop?.SetValue(item.Key, Convert.ChangeType(assignedId, prop.PropertyType));
+					pkProp?.SetValue(item.Key, Convert.ChangeType(nextId, pkProp.PropertyType));
+					batchRows.Add(EntityMapper.MapToRow(item.Key, schema));
+					nextId++;
 				}
-				else
-				{
-					await provider.AppendRowAsync(schema.TableName, EntityMapper.MapToRow(item.Key, schema));
-				}
-				changes++;
+				await provider.AppendRowsAsync(schema.TableName, batchRows);
 			}
+			else
+			{
+				// No PK — batch append without ID assignment
+				var batchRows = toAdd.Select(item => EntityMapper.MapToRow(item.Key, schema)).ToList();
+				await provider.AppendRowsAsync(schema.TableName, (IList<IList<object>>)batchRows);
+			}
+			changes += toAdd.Count;
 		}
 
 		_trackedEntities.Clear();
