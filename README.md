@@ -2,6 +2,7 @@
 
 [![Sheetly.Core](https://img.shields.io/nuget/v/Sheetly.Core.svg?label=Sheetly.Core&color=2f7f73)](https://www.nuget.org/packages/Sheetly.Core/)
 [![Sheetly.Google](https://img.shields.io/nuget/v/Sheetly.Google.svg?label=Sheetly.Google&color=2f7f73)](https://www.nuget.org/packages/Sheetly.Google/)
+[![Sheetly.Excel](https://img.shields.io/nuget/v/Sheetly.Excel.svg?label=Sheetly.Excel&color=2f7f73)](https://www.nuget.org/packages/Sheetly.Excel/)
 [![dotnet-sheetly](https://img.shields.io/nuget/v/dotnet-sheetly.svg?label=dotnet-sheetly&color=2f7f73)](https://www.nuget.org/packages/dotnet-sheetly/)
 [![License-MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -9,7 +10,7 @@
 
 ## 🌟 Why Sheetly?
 
-Sheetly brings the **Entity Framework Core developer experience** to Google Sheets. If you know EF Core, you already know Sheetly.
+Sheetly brings the **Entity Framework Core developer experience** to Google Sheets and Excel. If you know EF Core, you already know Sheetly.
 
 ```csharp
 public class Product 
@@ -33,6 +34,7 @@ public class AppContext : SheetsContext
     protected override void OnConfiguring(SheetsOptions options)
     {
         options.UseGoogleSheets("credentials.json", "your-spreadsheet-id");
+        // or: options.UseExcel("data.xlsx");
     }
     
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -122,12 +124,16 @@ dotnet sheetly scaffold
 |---|---|
 | [`Sheetly.Core`](https://www.nuget.org/packages/Sheetly.Core/) | Core abstractions, migrations, validation |
 | [`Sheetly.Google`](https://www.nuget.org/packages/Sheetly.Google/) | Google Sheets API provider |
+| [`Sheetly.Excel`](https://www.nuget.org/packages/Sheetly.Excel/) | Local Excel (.xlsx) file provider |
 | [`dotnet-sheetly`](https://www.nuget.org/packages/dotnet-sheetly/) | CLI tool for migrations |
 | [`Sheetly.DependencyInjection`](https://www.nuget.org/packages/Sheetly.DependencyInjection/) | ASP.NET Core DI integration |
 
 ```bash
 dotnet add package Sheetly.Core
-dotnet add package Sheetly.Google
+
+# Pick your provider:
+dotnet add package Sheetly.Google   # Google Sheets (online)
+dotnet add package Sheetly.Excel    # Excel .xlsx (local)
 
 # For ASP.NET Core apps
 dotnet add package Sheetly.DependencyInjection
@@ -140,7 +146,9 @@ dotnet tool install -g dotnet-sheetly
 
 ## 🚀 Quick Start
 
-### 1. **Setup Google Sheets API**
+### Option A: **Google Sheets** (Online)
+
+#### 1. Setup Google Sheets API
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a new project
@@ -148,6 +156,30 @@ dotnet tool install -g dotnet-sheetly
 4. Create credentials (Service Account)
 5. Download `credentials.json`
 6. Share your spreadsheet with the service account email
+
+#### 2. Configure
+
+```csharp
+protected override void OnConfiguring(SheetsOptions options)
+{
+    options.UseGoogleSheets("credentials.json", "your-spreadsheet-id");
+}
+```
+
+### Option B: **Excel** (Local .xlsx)
+
+```bash
+dotnet add package Sheetly.Excel
+```
+
+```csharp
+protected override void OnConfiguring(SheetsOptions options)
+{
+    options.UseExcel("C:/data/myapp.xlsx");
+}
+```
+
+No API keys, no internet — all data stays on disk.
 
 ### 2. **Create Your Models**
 
@@ -187,6 +219,7 @@ public class MyAppContext : SheetsContext
     protected override void OnConfiguring(SheetsOptions options)
     {
         options.UseGoogleSheets("credentials.json", "your-spreadsheet-id");
+        // or: options.UseExcel("mydata.xlsx");
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -356,7 +389,8 @@ await context.SaveChangesAsync(cts.Token);
 ```
 Sheetly/
 ├── Sheetly.Core                  # Core: context, sets, migrations, validation
-├── Sheetly.Google                # Google Sheets API provider
+├── Sheetly.Google                # Google Sheets API provider (online)
+├── Sheetly.Excel                 # Excel .xlsx provider (local)
 ├── Sheetly.DependencyInjection   # ASP.NET Core DI extensions
 └── dotnet-sheetly (CLI)          # Command-line migration tool
 ```
@@ -365,7 +399,7 @@ Sheetly/
 
 ## 📊 How It Works
 
-Sheetly creates **hidden sheets** in your Google Spreadsheet:
+Sheetly creates **hidden sheets** in your spreadsheet (Google Sheets or local .xlsx):
 
 | Sheet | Purpose |
 |---|---|
