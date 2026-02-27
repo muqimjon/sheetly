@@ -1,7 +1,5 @@
 ﻿using Sheetly.CLI.Helpers;
-using Sheetly.Core;
 using Sheetly.Core.Migration;
-using Sheetly.Google;
 using System.CommandLine;
 using System.Reflection;
 using System.Text.Json;
@@ -30,7 +28,7 @@ public class ScaffoldCommand : Command
 
 		try
 		{
-			var assembly = Assembly.LoadFrom(Path.GetFullPath(dllPath));
+			var (assembly, loadContext) = CliHelper.LoadAssemblyIsolated(dllPath);
 			var contextType = assembly.GetExportedTypes().FirstOrDefault(t => CliHelper.IsSubclassOfSheetsContext(t))
 				?? throw new Exception("SheetsContext not found.");
 
@@ -38,12 +36,23 @@ public class ScaffoldCommand : Command
 			string? connStr = CliHelper.GetConnectionString(contextProjectDir)
 				?? CliHelper.GetConnectionStringFromContext(contextType);
 
-			var method = typeof(GoogleSheetsFactory).GetMethods().First(m => m.Name == "CreateContextAsync").MakeGenericMethod(contextType);
+			// Use isolated Sheetly.Google factory so contextType satisfies its T : SheetsContext constraint
+			var googleAsm = CliHelper.GetGoogleAssembly(assembly, loadContext)
+				?? throw new Exception("Sheetly.Google not found in project references.");
+			var factoryType = googleAsm.GetType("Sheetly.Google.GoogleSheetsFactory")!;
+			var method = factoryType.GetMethods().First(m => m.Name == "CreateContextAsync").MakeGenericMethod(contextType);
 			var task = (Task)method.Invoke(null, [connStr])!;
 			await task;
-			var context = (SheetsContext)((dynamic)task).Result;
+			dynamic context = ((dynamic)task).Result;
 
-			var rows = await context.Provider.GetAllRowsAsync("__SheetlyHistory__");
+			// Provider.GetAllRowsAsync returns Task<List<IList<object>>> — BCL types survive cross-context cast
+			var providerProp = contextType.BaseType!.GetProperty("Provider")!;
+			var provider = providerProp.GetValue(context);
+			var getRowsTask = (Task)provider!.GetType()
+				.GetMethod("GetAllRowsAsync", new[] { typeof(string) })!
+				.Invoke(provider, new object[] { "__SheetlyHistory__" })!;
+			await getRowsTask;
+			var rows = (List<IList<object>>)((dynamic)getRowsTask).Result;
 			if (rows.Count <= 1) throw new Exception("Migration history not found.");
 
 			var snapshotJson = rows.Last()[2].ToString()!;

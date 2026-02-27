@@ -28,7 +28,7 @@ public class RemoveCommand : Command
 
 		try
 		{
-			var assembly = Assembly.LoadFrom(Path.GetFullPath(dllPath));
+			var (assembly, loadContext) = CliHelper.LoadAssemblyIsolated(dllPath);
 			var contextType = assembly.GetExportedTypes().FirstOrDefault(t => CliHelper.IsSubclassOfSheetsContext(t))
 				?? throw new Exception("SheetsContext not found.");
 
@@ -41,9 +41,11 @@ public class RemoveCommand : Command
 				return;
 			}
 
+			// Cross-context: use string-based attribute access instead of GetCustomAttribute<MigrationAttribute>()
 			var migrationTypes = assembly.GetExportedTypes()
-				.Where(t => t.GetCustomAttribute<MigrationAttribute>() != null)
-				.OrderByDescending(t => t.GetCustomAttribute<MigrationAttribute>()!.Id)
+				.Select(t => new { Type = t, MigrationId = CliHelper.GetMigrationAttributeId(t) })
+				.Where(x => x.MigrationId != null)
+				.OrderByDescending(x => x.MigrationId)
 				.ToList();
 
 			if (migrationTypes.Count == 0)
@@ -52,8 +54,8 @@ public class RemoveCommand : Command
 				return;
 			}
 
-			var lastMigrationType = migrationTypes[0];
-			string migrationId = lastMigrationType.GetCustomAttribute<MigrationAttribute>()!.Id;
+			var lastMigrationType = migrationTypes[0].Type;
+			string migrationId = migrationTypes[0].MigrationId!;
 
 			var migrationFile = Directory.GetFiles(migrationsDir, "*.cs")
 				.FirstOrDefault(f => !f.Contains("ModelSnapshot") &&
@@ -69,20 +71,27 @@ public class RemoveCommand : Command
 			string snapshotClassName = $"{contextName}ModelSnapshot";
 			string targetNamespace = $"{contextType.Namespace}.Migrations";
 
+			// Cross-context: bridge snapshot and migration operations via JSON
 			var snapshotType = assembly.GetExportedTypes()
 				.FirstOrDefault(t => t.Name == snapshotClassName && t.Namespace == targetNamespace)
 				?? throw new Exception($"ModelSnapshot class '{snapshotClassName}' not found.");
 
-			var currentSnapshot = Activator.CreateInstance(snapshotType) as MigrationSnapshot
+			var isolatedSnap = Activator.CreateInstance(snapshotType)
 				?? throw new Exception("Failed to instantiate ModelSnapshot.");
+			var currentSnapshot = CliHelper.BridgeFromJson<MigrationSnapshot>(isolatedSnap)
+				?? throw new Exception("Failed to bridge ModelSnapshot.");
 
-			var lastMigration = Activator.CreateInstance(lastMigrationType) as Migration
+			// Invoke Down() with isolated MigrationBuilder, then bridge operations via JSON
+			var coreAsm = CliHelper.GetCoreAssembly(assembly, loadContext);
+			var isolatedMbType = coreAsm.GetType("Sheetly.Core.Migrations.MigrationBuilder")!;
+			var lastMigrationObj = Activator.CreateInstance(lastMigrationType)
 				?? throw new Exception("Failed to instantiate migration.");
+			var downBuilderObj = Activator.CreateInstance(isolatedMbType)!;
+			lastMigrationType.GetMethod("Down")!.Invoke(lastMigrationObj, [downBuilderObj]);
+			var isolatedOps = isolatedMbType.GetMethod("GetOperations")!.Invoke(downBuilderObj, null)!;
+			var downOps = CliHelper.BridgeMigrationOperations(isolatedOps);
 
-			var downBuilder = new Sheetly.Core.Migrations.MigrationBuilder();
-			lastMigration.Down(downBuilder);
-
-			var revertedSnapshot = RevertSnapshot(currentSnapshot, downBuilder.GetOperations());
+			var revertedSnapshot = RevertSnapshot(currentSnapshot, downOps);
 
 			var generator = new ModelSnapshotGenerator();
 			string snapshotCode = generator.GenerateModelSnapshot(revertedSnapshot, targetNamespace, contextName);

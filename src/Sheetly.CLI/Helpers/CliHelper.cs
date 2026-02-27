@@ -1,12 +1,123 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Sheetly.Core.Migration;
+using Sheetly.Core.Migrations.Operations;
 using System.Reflection;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Sheetly.CLI.Helpers;
 
 public static class CliHelper
 {
+	// JSON options used when bridging objects across AssemblyLoadContext boundaries.
+	// TypeJsonConverter handles System.Type fields (e.g. ClrType on operation classes).
+	private static readonly JsonSerializerOptions _bridgeOptions = new()
+	{
+		Converters = { new TypeJsonConverter() }
+	};
+
+	/// <summary>Loads the project DLL and its dependencies into an isolated context.</summary>
+	internal static (Assembly assembly, ProjectAssemblyLoadContext loadContext) LoadAssemblyIsolated(string dllPath)
+	{
+		var fullPath = Path.GetFullPath(dllPath);
+		var ctx = new ProjectAssemblyLoadContext(fullPath);
+		return (ctx.LoadFromAssemblyPath(fullPath), ctx);
+	}
+
+	/// <summary>Resolves Sheetly.Core from the project's isolated load context.</summary>
+	internal static Assembly GetCoreAssembly(Assembly userAssembly, ProjectAssemblyLoadContext loadContext)
+	{
+		var coreRef = userAssembly.GetReferencedAssemblies()
+			.FirstOrDefault(a => a.Name == "Sheetly.Core")
+			?? throw new Exception("Sheetly.Core not found in assembly references.");
+		return loadContext.LoadFromAssemblyName(coreRef);
+	}
+
+	/// <summary>Resolves Sheetly.Google from the project's isolated load context (may be null).</summary>
+	internal static Assembly? GetGoogleAssembly(Assembly userAssembly, ProjectAssemblyLoadContext loadContext)
+	{
+		var googleRef = userAssembly.GetReferencedAssemblies().FirstOrDefault(a => a.Name == "Sheetly.Google");
+		return googleRef != null ? loadContext.LoadFromAssemblyName(googleRef) : null;
+	}
+
+	/// <summary>
+	/// String-based IsSubclassOf that works across AssemblyLoadContext boundaries
+	/// (type identity is context-scoped, so reference comparison fails cross-context).
+	/// </summary>
+	public static bool IsSubclassOf(Type? type, string baseTypeFullName)
+	{
+		while (type != null && type != typeof(object))
+		{
+			if (type.FullName == baseTypeFullName) return true;
+			type = type.BaseType;
+		}
+		return false;
+	}
+
+	/// <summary>
+	/// Produces a human-friendly "update the CLI" message when a reflection lookup fails,
+	/// indicating that the project's Sheetly.Core version is incompatible with this CLI.
+	/// </summary>
+	public static string VersionMismatchMessage(Assembly coreAsm, string missingMember)
+	{
+		var projectVer = coreAsm.GetName().Version?.ToString() ?? "unknown";
+		return $"Incompatible Sheetly.Core version ({projectVer}): member '{missingMember}' not found.\n" +
+			   $"Run: dotnet tool update -g dotnet-sheetly";
+	}
+
+
+	public static string? GetMigrationAttributeId(Type t)
+	{
+		var attr = t.GetCustomAttributes(false).FirstOrDefault(a => a.GetType().Name == "MigrationAttribute");
+		return attr?.GetType().GetProperty("Id")?.GetValue(attr) as string;
+	}
+
+	/// <summary>
+	/// Serializes an object from the isolated context to JSON and deserializes it
+	/// into a CLI-side type, crossing the AssemblyLoadContext boundary safely.
+	/// </summary>
+	public static T? BridgeFromJson<T>(object? isolatedObj) where T : class
+	{
+		if (isolatedObj == null) return null;
+		var json = JsonSerializer.Serialize(isolatedObj, isolatedObj.GetType(), _bridgeOptions);
+		return JsonSerializer.Deserialize<T>(json, _bridgeOptions);
+	}
+
+	/// <summary>
+	/// Bridges a List&lt;MigrationOperation&gt; across context boundaries.
+	/// Performs manual dispatch on OperationType because MigrationOperation is abstract.
+	/// </summary>
+	public static List<MigrationOperation> BridgeMigrationOperations(object? isolatedOps)
+	{
+		if (isolatedOps == null) return [];
+		var json = JsonSerializer.Serialize(isolatedOps, isolatedOps.GetType(), _bridgeOptions);
+		var elements = JsonSerializer.Deserialize<List<JsonObject>>(json, _bridgeOptions);
+		if (elements == null) return [];
+
+		var result = new List<MigrationOperation>();
+		foreach (var el in elements)
+		{
+			var opType = el["OperationType"]?.GetValue<string>();
+			MigrationOperation? op = opType switch
+			{
+				"CreateTable"        => el.Deserialize<CreateTableOperation>(_bridgeOptions),
+				"AddColumn"          => el.Deserialize<AddColumnOperation>(_bridgeOptions),
+				"DropColumn"         => el.Deserialize<DropColumnOperation>(_bridgeOptions),
+				"DropTable"          => el.Deserialize<DropTableOperation>(_bridgeOptions),
+				"AlterColumn"        => el.Deserialize<AlterColumnOperation>(_bridgeOptions),
+				"CreateIndex"        => el.Deserialize<CreateIndexOperation>(_bridgeOptions),
+				"DropIndex"          => el.Deserialize<DropIndexOperation>(_bridgeOptions),
+				"AddCheckConstraint" => el.Deserialize<AddCheckConstraintOperation>(_bridgeOptions),
+				"DropCheckConstraint"=> el.Deserialize<DropCheckConstraintOperation>(_bridgeOptions),
+				_                    => null
+			};
+			if (op != null) result.Add(op);
+		}
+		return result;
+	}
+
+
 	public static bool IsSubclassOfSheetsContext(Type? type)
 	{
 		while (type != null && type != typeof(object))

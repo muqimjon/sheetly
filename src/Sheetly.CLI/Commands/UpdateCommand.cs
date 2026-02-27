@@ -33,7 +33,7 @@ public class UpdateCommand : Command
 
 		try
 		{
-			var assembly = Assembly.LoadFrom(Path.GetFullPath(dllPath));
+			var (assembly, loadContext) = CliHelper.LoadAssemblyIsolated(dllPath);
 			var contextType = assembly.GetExportedTypes().FirstOrDefault(t => CliHelper.IsSubclassOfSheetsContext(t))
 			?? throw new Exception("SheetsContext not found.");
 
@@ -53,12 +53,13 @@ public class UpdateCommand : Command
 
 			var appliedMigrations = await migrationService.GetAppliedMigrationsAsync();
 
+			// Cross-context: IsSubclassOf(typeof(Migration)) fails — use string-based check
 			var migrationTypes = assembly.GetTypes()
-			.Where(t => t.IsSubclassOf(typeof(Migration)) && !t.IsAbstract)
-			.Select(t => new { Type = t, Attribute = t.GetCustomAttribute<MigrationAttribute>() })
-			.Where(x => x.Attribute != null)
-			.OrderBy(x => x.Attribute!.Id)
-			.ToList();
+				.Where(t => CliHelper.IsSubclassOf(t, "Sheetly.Core.Migration.Migration") && !t.IsAbstract)
+				.Select(t => new { Type = t, MigrationId = CliHelper.GetMigrationAttributeId(t) })
+				.Where(x => x.MigrationId != null)
+				.OrderBy(x => x.MigrationId)
+				.ToList();
 
 			if (migrationTypes.Count == 0)
 			{
@@ -67,8 +68,8 @@ public class UpdateCommand : Command
 			}
 
 			var pendingMigrations = migrationTypes
-			.Where(x => !appliedMigrations.Contains(x.Attribute!.Id))
-			.ToList();
+				.Where(x => !appliedMigrations.Contains(x.MigrationId!))
+				.ToList();
 
 			if (pendingMigrations.Count == 0)
 			{
@@ -78,21 +79,32 @@ public class UpdateCommand : Command
 
 			Console.WriteLine($"🚀 Found {pendingMigrations.Count} pending migration(s).");
 
+			// Cross-context: instantiate snapshot and bridge via JSON
 			var snapshotType = assembly.GetTypes()
-			.FirstOrDefault(t => t.Name.EndsWith("ModelSnapshot") && t.IsSubclassOf(typeof(MigrationSnapshot)));
-			MigrationSnapshot? currentSnapshot = snapshotType != null
-			? (MigrationSnapshot?)Activator.CreateInstance(snapshotType)
-			: null;
+				.FirstOrDefault(t => t.Name.EndsWith("ModelSnapshot") &&
+								CliHelper.IsSubclassOf(t, "Sheetly.Core.Migrations.MigrationSnapshot"));
+			MigrationSnapshot? currentSnapshot = null;
+			if (snapshotType != null)
+			{
+				var isolatedSnap = Activator.CreateInstance(snapshotType);
+				currentSnapshot = CliHelper.BridgeFromJson<MigrationSnapshot>(isolatedSnap);
+			}
+
+			// Load isolated MigrationBuilder once for all pending migrations
+			var coreAsm = CliHelper.GetCoreAssembly(assembly, loadContext);
+			var isolatedMbType = coreAsm.GetType("Sheetly.Core.Migrations.MigrationBuilder")!;
 
 			foreach (var pm in pendingMigrations)
 			{
-				var migrationId = pm.Attribute!.Id;
+				var migrationId = pm.MigrationId!;
 				Console.Write($"Applying {migrationId}... ");
 
-				var migration = (Migration)Activator.CreateInstance(pm.Type)!;
-				var builder = new Core.Migrations.MigrationBuilder();
-				migration.Up(builder);
-				var operations = builder.GetOperations();
+				// Cross-context: invoke Up() with isolated MigrationBuilder, then bridge operations via JSON
+				var migrationObj = Activator.CreateInstance(pm.Type)!;
+				var builder = Activator.CreateInstance(isolatedMbType)!;
+				pm.Type.GetMethod("Up")!.Invoke(migrationObj, [builder]);
+				var isolatedOps = isolatedMbType.GetMethod("GetOperations")!.Invoke(builder, null)!;
+				var operations = CliHelper.BridgeMigrationOperations(isolatedOps);
 
 				if (currentSnapshot != null)
 				{

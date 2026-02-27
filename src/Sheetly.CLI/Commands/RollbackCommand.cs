@@ -32,7 +32,7 @@ public class RollbackCommand : Command
 
 		try
 		{
-			var assembly = Assembly.LoadFrom(Path.GetFullPath(dllPath));
+			var (assembly, loadContext) = CliHelper.LoadAssemblyIsolated(dllPath);
 			var contextType = assembly.GetExportedTypes().FirstOrDefault(t => CliHelper.IsSubclassOfSheetsContext(t))
 				?? throw new Exception("SheetsContext not found.");
 

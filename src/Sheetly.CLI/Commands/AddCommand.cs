@@ -1,5 +1,4 @@
 using Sheetly.CLI.Helpers;
-using Sheetly.Core;
 using Sheetly.Core.Migration;
 using Sheetly.Core.Migrations;
 using Sheetly.Core.Migrations.Design;
@@ -46,7 +45,7 @@ public class AddCommand : Command
 
 		try
 		{
-			var assembly = Assembly.LoadFrom(Path.GetFullPath(dllPath));
+			var (assembly, loadContext) = CliHelper.LoadAssemblyIsolated(dllPath);
 			var contextType = assembly.GetExportedTypes().FirstOrDefault(t => CliHelper.IsSubclassOfSheetsContext(t))
 				?? throw new Exception("SheetsContext not found.");
 
@@ -54,12 +53,28 @@ public class AddCommand : Command
 			string contextProjectDir = CliHelper.FindProjectRootFromDll(contextType.Assembly.Location);
 
 			outputDir ??= "Migrations";
-			var modelBuilder = new ModelBuilder();
+
+			// Use isolated Sheetly.Core to avoid MVID mismatch across load contexts.
+			// CLI ships its own copy of Sheetly.Core; the project has a freshly built copy.
+			// Both have the same version string but different MVIDs — cross-context casting fails.
+			// Fix: invoke ModelBuilder and SnapshotBuilder from the isolated context, then JSON-bridge the result.
+			var coreAsm = CliHelper.GetCoreAssembly(assembly, loadContext);
+			var mbType = coreAsm.GetType("Sheetly.Core.ModelBuilder")
+				?? throw new Exception(CliHelper.VersionMismatchMessage(coreAsm, "Sheetly.Core.ModelBuilder"));
+			var modelBuilder = Activator.CreateInstance(mbType)!;
+
 			var onModelCreatingMethod = contextType.GetMethod("OnModelCreating", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
 			onModelCreatingMethod?.Invoke(context, [modelBuilder]);
 
-			// Build current snapshot — must include fluent API metadata to match SheetsContext.InitializeAsync
-			var currentSnapshot = SnapshotBuilder.BuildFromContext(contextType, modelBuilder.GetMetadata());
+			// Build current snapshot inside the isolated context, then bridge to CLI via JSON
+			var sbType = coreAsm.GetType("Sheetly.Core.Migrations.SnapshotBuilder")
+				?? throw new Exception(CliHelper.VersionMismatchMessage(coreAsm, "Sheetly.Core.Migrations.SnapshotBuilder"));
+			var buildMethod = sbType.GetMethod("BuildFromContext", BindingFlags.Public | BindingFlags.Static)
+				?? throw new Exception(CliHelper.VersionMismatchMessage(coreAsm, "SnapshotBuilder.BuildFromContext"));
+			var metadataArg = mbType.GetMethod("GetMetadata")!.Invoke(modelBuilder, null);
+			var isolatedSnapshot = buildMethod.Invoke(null, [contextType, metadataArg]);
+			var currentSnapshot = CliHelper.BridgeFromJson<MigrationSnapshot>(isolatedSnapshot)
+				?? throw new Exception("Failed to build migration snapshot.");
 
 			string finalPath = Path.Combine(contextProjectDir, outputDir);
 			Directory.CreateDirectory(finalPath);
@@ -71,8 +86,8 @@ public class AddCommand : Command
 
 			if (snapshotType != null)
 			{
-				// Instantiate snapshot (constructor populates Entities)
-				previousSnapshot = Activator.CreateInstance(snapshotType) as MigrationSnapshot;
+				var isolatedPrev = Activator.CreateInstance(snapshotType);
+				previousSnapshot = CliHelper.BridgeFromJson<MigrationSnapshot>(isolatedPrev);
 			}
 
 			var modelDiffer = new ModelDiffer();

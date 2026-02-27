@@ -22,10 +22,11 @@ public class ScriptCommand : Command
 
 		try
 		{
-			var assembly = Assembly.LoadFrom(Path.GetFullPath(dllPath));
+			var (assembly, _) = CliHelper.LoadAssemblyIsolated(dllPath);
 
 			var snapshotType = assembly.GetTypes()
-				.FirstOrDefault(t => t.Name.EndsWith("ModelSnapshot") && t.IsSubclassOf(typeof(MigrationSnapshot)));
+				.FirstOrDefault(t => t.Name.EndsWith("ModelSnapshot") &&
+								CliHelper.IsSubclassOf(t, "Sheetly.Core.Migrations.MigrationSnapshot"));
 
 			if (snapshotType == null)
 			{
@@ -33,7 +34,8 @@ public class ScriptCommand : Command
 				return;
 			}
 
-			var snapshot = (MigrationSnapshot)Activator.CreateInstance(snapshotType)!;
+			var isolatedSnap = Activator.CreateInstance(snapshotType)!;
+			var snapshot = CliHelper.BridgeFromJson<MigrationSnapshot>(isolatedSnap)!;
 
 			Console.WriteLine($"--- Sheetly Schema Script (Generated at {DateTime.Now}) ---");
 			foreach (var entity in snapshot.Entities.Values)

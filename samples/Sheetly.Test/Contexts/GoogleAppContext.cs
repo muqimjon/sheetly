@@ -17,8 +17,8 @@ public class GoogleAppContext : SheetsContext
         // credentials.json faylini va spreadsheet ID ni o'zgartiring
         options.UseGoogleSheets(
             credentialsPath: "credentials.json",
-            spreadsheetId: "YOUR_SPREADSHEET_ID_HERE"
-        );
+            spreadsheetId: "1bNZnlJJ81VLbM5VeWoy9uCq4Ynz2bkAXaJlFJAYy_Sc"
+		);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

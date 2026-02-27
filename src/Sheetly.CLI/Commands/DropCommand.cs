@@ -1,6 +1,4 @@
 ﻿using Sheetly.CLI.Helpers;
-using Sheetly.Core;
-using Sheetly.Google;
 using System.CommandLine;
 using System.Reflection;
 
@@ -33,21 +31,26 @@ public class DropCommand : Command
 
 		try
 		{
-			var assembly = Assembly.LoadFrom(Path.GetFullPath(dllPath));
+			var (assembly, loadContext) = CliHelper.LoadAssemblyIsolated(dllPath);
 			var contextType = assembly.GetExportedTypes().FirstOrDefault(t => CliHelper.IsSubclassOfSheetsContext(t))
 				?? throw new Exception("SheetsContext not found.");
 
 			string? connStr = CliHelper.GetConnectionString(CliHelper.FindProjectRootFromDll(dllPath))
 				?? CliHelper.GetConnectionStringFromContext(contextType);
 
-			var method = typeof(GoogleSheetsFactory).GetMethods()
+			// Use isolated Sheetly.Google factory so contextType satisfies its T : SheetsContext constraint
+			var googleAsm = CliHelper.GetGoogleAssembly(assembly, loadContext)
+				?? throw new Exception("Sheetly.Google not found in project references.");
+			var factoryType = googleAsm.GetType("Sheetly.Google.GoogleSheetsFactory")!;
+
+			var method = factoryType.GetMethods()
 				.FirstOrDefault(m => m.Name == "CreateContextAsync" && m.GetParameters().Length == 1)
 				?.MakeGenericMethod(contextType);
 
 			var task = (Task)method!.Invoke(null, [connStr])!;
 			await task;
 
-			var context = (SheetsContext)((dynamic)task).Result;
+			dynamic context = ((dynamic)task).Result;
 			await context.Database.DropDatabaseAsync();
 			Console.WriteLine("✅ Database dropped successfully.");
 		}
