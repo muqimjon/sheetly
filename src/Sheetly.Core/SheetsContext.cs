@@ -19,6 +19,22 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 	private MigrationSnapshot? _currentSnapshot;
 	private ConstraintValidator? _validator;
 
+	// Stores options provided via constructor so InitializeAsync can use them
+	// without requiring an OnConfiguring override.
+	private readonly SheetsOptions? _constructorOptions;
+
+	/// <summary>Parameterless constructor — provider configured via OnConfiguring().</summary>
+	protected SheetsContext() { }
+
+	/// <summary>
+	/// Options constructor — mirrors EF Core's DbContext(DbContextOptions) pattern.
+	/// Use with <see cref="SheetsContextOptions{TContext}"/> for DI-friendly contexts.
+	/// </summary>
+	protected SheetsContext(SheetsOptions options)
+	{
+		_constructorOptions = options;
+	}
+
 	protected virtual void OnModelCreating(ModelBuilder modelBuilder) { }
 
 	protected virtual void OnConfiguring(SheetsOptions options) { }
@@ -27,10 +43,13 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 	{
 		if (provider == null)
 		{
-			var options = new SheetsOptions();
-			OnConfiguring(options);
+			// Prefer constructor-injected options over OnConfiguring override
+			var options = _constructorOptions ?? new SheetsOptions();
+			if (_constructorOptions == null)
+				OnConfiguring(options);
+
 			provider = options.Provider ?? throw new InvalidOperationException(
-				"ISheetsProvider not configured. Call UseGoogleSheets in OnConfiguring.");
+				"ISheetsProvider not configured. Call UseGoogleSheets in OnConfiguring or pass SheetsContextOptions via constructor.");
 			migrationService ??= options.MigrationService;
 		}
 
