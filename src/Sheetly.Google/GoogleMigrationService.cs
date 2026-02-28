@@ -205,8 +205,9 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 
 	private async Task RecordMigrationAsync(string migrationId)
 	{
+		var version = typeof(ISheetsProvider).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
 		await provider.AppendRowAsync(HistoryTable,
-			[migrationId, DateTime.UtcNow.ToString("O"), "1.0.0"]);
+			[migrationId, DateTime.UtcNow.ToString("O"), version]);
 	}
 
 	private async Task DropColumnAsync(DropColumnOperation op)

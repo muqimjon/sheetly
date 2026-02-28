@@ -50,7 +50,7 @@ public static class SnapshotBuilder
 					PropertyName = prop.Name,
 					DataType = GetSimpleTypeName(prop.PropertyType),
 					IsPrimaryKey = IsPrimaryKey(prop),
-					IsAutoIncrement = IsPrimaryKey(prop),
+					IsAutoIncrement = IsPrimaryKey(prop) && IsNumericType(prop.PropertyType),
 
 					IsNullable = IsPropertyNullable(prop) && !prop.IsDefined(typeof(RequiredAttribute)) && !(propConfig?.IsRequiredValue ?? false),
 					IsRequired = prop.IsDefined(typeof(RequiredAttribute)) || (propConfig?.IsRequiredValue ?? false),
@@ -110,6 +110,15 @@ public static class SnapshotBuilder
 		if (prop.IsDefined(typeof(KeyAttribute))) return true;
 		return prop.Name.Equals("Id", StringComparison.OrdinalIgnoreCase) ||
 			   prop.Name.Equals(prop.DeclaringType?.Name + "Id", StringComparison.OrdinalIgnoreCase);
+	}
+
+	private static bool IsNumericType(Type type)
+	{
+		var underlying = Nullable.GetUnderlyingType(type) ?? type;
+		return underlying == typeof(int) || underlying == typeof(long) ||
+			   underlying == typeof(short) || underlying == typeof(byte) ||
+			   underlying == typeof(uint) || underlying == typeof(ulong) ||
+			   underlying == typeof(ushort) || underlying == typeof(sbyte);
 	}
 
 	private static string GetSimpleTypeName(Type type)

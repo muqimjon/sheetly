@@ -274,7 +274,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		{
 			var pkColumn = schema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
 
-			if (pkColumn is not null)
+			if (pkColumn is not null && pkColumn.IsAutoIncrement)
 			{
 				long nextId = await provider.GetMaxIdAsync(schema.TableName) + 1;
 				var batchRows = new List<IList<object>>(toAdd.Count);
