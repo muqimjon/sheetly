@@ -14,8 +14,7 @@ public interface ISheetsProvider : IDisposable
 	Task<int> FindRowIndexByKeyAsync(string sheetName, string keyValue);
 	Task AppendRowAsync(string sheetName, IList<object> row);
 	Task AppendRowsAsync(string sheetName, IList<IList<object>> rows);
-	Task<int> AppendRowAndGetIdAsync(string sheetName, IList<object> row);
-	Task<long> GetMaxIdAsync(string sheetName);
+	Task<long> GetAndIncrementIdAsync(string tableName, int count = 1);
 	Task UpdateRowAsync(string sheetName, int rowIndex, IList<object> row);
 	Task DeleteRowAsync(string sheetName, int rowIndex);
 

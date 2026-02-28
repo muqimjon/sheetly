@@ -171,68 +171,42 @@ public class GoogleSheetProvider : ISheetsProvider
 		await ExecuteWithRetryAsync(request);
 	}
 
-	/// <summary>
-	/// Appends a row where the first cell is a formula =IFERROR(MAX(INDIRECT("'Table'!A2:A"))+1,1).
-	/// Returns the computed integer ID after reading the cell back.
-	/// Reduces ID management from 5 API calls to 2 (append + read).
-	/// </summary>
-	public async Task<int> AppendRowAndGetIdAsync(string sheetName, IList<object> row)
+	public async Task<long> GetAndIncrementIdAsync(string tableName, int count = 1)
 	{
-		var rowWithFormula = new List<object>(row)
+		var schemaRows = await GetAllRowsAsync("__SheetlySchema__");
+		for (int i = 1; i < schemaRows.Count; i++)
 		{
-			[0] = $"=IFERROR(MAX(INDIRECT(\"'{sheetName}'!A2:A\"))+1,1)"
-		};
+			var row = schemaRows[i];
+			if (row.Count > 7 &&
+				row[1]?.ToString() == tableName &&
+				row[7]?.ToString() == "True")
+			{
+				long currentId = 0;
+				if (row.Count > 28)
+					long.TryParse(row[28]?.ToString(), out currentId);
 
-		var vr = new ValueRange { Values = new List<IList<object>> { rowWithFormula } };
-		var request = NextService.Spreadsheets.Values.Append(vr, _spreadsheetId, $"'{sheetName}'!A1");
-		request.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
-		var response = await ExecuteWithRetryAsync(request);
+				if (currentId == 0)
+				{
+					var dataRows = await GetAllRowsAsync(tableName);
+					for (int j = 1; j < dataRows.Count; j++)
+						if (dataRows[j].Count > 0 && long.TryParse(dataRows[j][0]?.ToString(), out var did) && did > currentId)
+							currentId = did;
+				}
 
-		var updatedRange = response.Updates?.UpdatedRange ?? string.Empty;
-		var rowNumber = ExtractRowNumberFromRange(updatedRange);
-
-		var idValue = await GetValueAsync(sheetName, $"A{rowNumber}");
-		return idValue is not null && int.TryParse(idValue.ToString(), out var id) ? id : rowNumber - 1;
+				long nextId = currentId + 1;
+				int spreadsheetRow = i + 1;
+				await UpdateValueAsync("__SheetlySchema__", $"AC{spreadsheetRow}", currentId + count);
+				return nextId;
+			}
+		}
+		return 1;
 	}
-
-	/// <summary>Parses the row number from a Sheets range string like "'Table'!A5:E5" or "A5:E5".</summary>
-	private static int ExtractRowNumberFromRange(string range)
-	{
-		var colonIdx = range.IndexOf('!');
-		var cellPart = colonIdx >= 0 ? range[(colonIdx + 1)..] : range;
-		var startCell = cellPart.Split(':')[0];
-		var digits = new string(startCell.SkipWhile(c => !char.IsDigit(c)).ToArray());
-		return int.TryParse(digits, out var row) ? row : 2;
-	}
-
-	/// <summary>
-	/// Appends multiple rows in a single API call (batch). Use when IDs are already assigned.
-	/// 1 API call regardless of row count.
-	/// </summary>
 	public async Task AppendRowsAsync(string sheetName, IList<IList<object>> rows)
 	{
 		var vr = new ValueRange { Values = rows };
 		var request = NextService.Spreadsheets.Values.Append(vr, _spreadsheetId, $"'{sheetName}'!A1");
 		request.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
 		await ExecuteWithRetryAsync(request);
-	}
-
-	/// <summary>
-	/// Returns the current maximum integer value in column A (excluding header).
-	/// Uses VALUES_UNRENDERED to get the raw number even when formulas are present.
-	/// 1 API call.
-	/// </summary>
-	public async Task<long> GetMaxIdAsync(string sheetName)
-	{
-		var request = NextService.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!A2:A");
-		request.ValueRenderOption = SpreadsheetsResource.ValuesResource.GetRequest.ValueRenderOptionEnum.UNFORMATTEDVALUE;
-		var response = await ExecuteWithRetryAsync(request);
-		long max = 0;
-		if (response.Values is not null)
-			foreach (var row in response.Values)
-				if (row.Count > 0 && long.TryParse(row[0]?.ToString(), out var id) && id > max)
-					max = id;
-		return max;
 	}
 
 	public async Task UpdateRowAsync(string sheetName, int rowIndex, IList<object> row)

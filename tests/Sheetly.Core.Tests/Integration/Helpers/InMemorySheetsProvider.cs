@@ -97,34 +97,34 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 		return Task.CompletedTask;
 	}
 
-	public Task<long> GetMaxIdAsync(string sheetName)
+	public async Task<long> GetAndIncrementIdAsync(string tableName, int count = 1)
 	{
-		long max = 0;
-		if (_sheets.TryGetValue(sheetName, out var rows))
-			for (int i = 1; i < rows.Count; i++)
-				if (rows[i].Count > 0 && long.TryParse(rows[i][0]?.ToString(), out var id) && id > max)
-					max = id;
-		return Task.FromResult(max);
-	}
-
-	public Task<int> AppendRowAndGetIdAsync(string sheetName, IList<object> row)
-	{
-		if (!_sheets.TryGetValue(sheetName, out var rows))
-			return Task.FromResult(1);
-
-		int maxId = 0;
-		for (int i = 1; i < rows.Count; i++)
+		var schemaRows = await GetAllRowsAsync("__SheetlySchema__");
+		for (int i = 1; i < schemaRows.Count; i++)
 		{
-			if (rows[i].Count > 0 && int.TryParse(rows[i][0]?.ToString(), out var id) && id > maxId)
-				maxId = id;
-		}
-		int nextId = maxId + 1;
+			var row = schemaRows[i];
+			if (row.Count > 7 &&
+				row[1]?.ToString() == tableName &&
+				row[7]?.ToString() == "True")
+			{
+				long currentId = 0;
+				if (row.Count > 28)
+					long.TryParse(row[28]?.ToString(), out currentId);
 
-		var newRow = row.ToList();
-		if (newRow.Count > 0)
-			newRow[0] = nextId;
-		rows.Add(newRow);
-		return Task.FromResult(nextId);
+				if (currentId == 0)
+				{
+					if (_sheets.TryGetValue(tableName, out var dataRows))
+						for (int j = 1; j < dataRows.Count; j++)
+							if (dataRows[j].Count > 0 && long.TryParse(dataRows[j][0]?.ToString(), out var did) && did > currentId)
+								currentId = did;
+				}
+
+				long nextId = currentId + 1;
+				await UpdateValueAsync("__SheetlySchema__", $"AC{i + 1}", currentId + count);
+				return nextId;
+			}
+		}
+		return 1;
 	}
 
 	public Task UpdateRowAsync(string sheetName, int rowIndex, IList<object> row)

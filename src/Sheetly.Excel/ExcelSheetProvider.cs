@@ -137,33 +137,35 @@ public sealed class ExcelSheetProvider : ISheetsProvider, IAsyncDisposable
 		return Task.CompletedTask;
 	}
 
-	public Task<int> AppendRowAndGetIdAsync(string sheetName, IList<object> row)
+	public async Task<long> GetAndIncrementIdAsync(string tableName, int count = 1)
 	{
-		EnsureWorkbook();
-		var ws = GetWorksheet(sheetName);
+		var schemaRows = await GetAllRowsAsync("__SheetlySchema__");
+		for (int i = 1; i < schemaRows.Count; i++)
+		{
+			var row = schemaRows[i];
+			if (row.Count > 7 &&
+				row[1]?.ToString() == tableName &&
+				row[7]?.ToString() == "True")
+			{
+				long currentId = 0;
+				if (row.Count > 28)
+					long.TryParse(row[28]?.ToString(), out currentId);
 
-		long maxId = GetMaxIdFromSheet(ws);
-		long nextId = maxId + 1;
+				if (currentId == 0)
+				{
+					var dataRows = await GetAllRowsAsync(tableName);
+					for (int j = 1; j < dataRows.Count; j++)
+						if (dataRows[j].Count > 0 && long.TryParse(dataRows[j][0]?.ToString(), out var did) && did > currentId)
+							currentId = did;
+				}
 
-		var newRow = row.ToList();
-		if (newRow.Count > 0)
-			newRow[0] = nextId;
-
-		int nextRowNum = GetNextEmptyRow(ws);
-		for (int i = 0; i < newRow.Count; i++)
-			ws.Cell(nextRowNum, i + 1).Value = newRow[i]?.ToString() ?? "";
-
-		Save();
-		return Task.FromResult((int)nextId);
-	}
-
-	public Task<long> GetMaxIdAsync(string sheetName)
-	{
-		EnsureWorkbook();
-		if (!_workbook!.TryGetWorksheet(sheetName, out var ws))
-			return Task.FromResult(0L);
-
-		return Task.FromResult(GetMaxIdFromSheet(ws));
+				long nextId = currentId + 1;
+				int spreadsheetRow = i + 1;
+				await UpdateValueAsync("__SheetlySchema__", $"AC{spreadsheetRow}", currentId + count);
+				return nextId;
+			}
+		}
+		return 1;
 	}
 
 	public Task UpdateRowAsync(string sheetName, int rowIndex, IList<object> row)

@@ -20,7 +20,7 @@ public partial class AppDbModelSnapshot : MigrationSnapshot
         {
             ModelHash = "B9emMa1A++cOQMHt5sY3NkJRTAb1yP/Ei7sKWFlwVDw=",
             Version = "1.0.0",
-            LastUpdated = DateTime.Parse("2026-02-28T07:44:24.5479128Z")
+            LastUpdated = DateTime.Parse("2026-02-28T11:42:26.8750456Z")
         };
 
         // Category
@@ -41,7 +41,7 @@ public partial class AppDbModelSnapshot : MigrationSnapshot
                     IsForeignKey = false,
                     ForeignKeyColumn = "Id",
                     IsNullable = false,
-                    IsRequired = false
+                    IsRequired = true
                 },
                 new ColumnSchema
                 {
@@ -79,7 +79,7 @@ public partial class AppDbModelSnapshot : MigrationSnapshot
                     IsForeignKey = false,
                     ForeignKeyColumn = "Id",
                     IsNullable = false,
-                    IsRequired = false
+                    IsRequired = true
                 },
                 new ColumnSchema
                 {
