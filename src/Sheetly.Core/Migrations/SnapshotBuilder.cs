@@ -52,8 +52,8 @@ public static class SnapshotBuilder
 					IsPrimaryKey = IsPrimaryKey(prop),
 					IsAutoIncrement = IsPrimaryKey(prop) && IsNumericType(prop.PropertyType),
 
-					IsNullable = IsPropertyNullable(prop) && !prop.IsDefined(typeof(RequiredAttribute)) && !(propConfig?.IsRequiredValue ?? false),
-					IsRequired = prop.IsDefined(typeof(RequiredAttribute)) || (propConfig?.IsRequiredValue ?? false),
+					IsNullable = !IsPrimaryKey(prop) && IsPropertyNullable(prop) && !prop.IsDefined(typeof(RequiredAttribute)) && !(propConfig?.IsRequiredValue ?? false),
+					IsRequired = IsPrimaryKey(prop) || prop.IsDefined(typeof(RequiredAttribute)) || (propConfig?.IsRequiredValue ?? false),
 					MaxLength = propConfig?.MaxLength ?? prop.GetCustomAttribute<MaxLengthAttribute>()?.Length,
 					MinLength = propConfig?.MinLength,
 					MinValue = propConfig?.MinValue,

@@ -21,9 +21,24 @@ public class PrimaryKeyValidator : IValidationRule
 
 		var value = property.GetValue(entity);
 
-		if (value is null || IsDefaultValue(value, property.PropertyType))
+		if (pkColumn.IsAutoIncrement)
 		{
-			return result;
+			// Auto-increment PK: skip validation when value is default — system will assign it
+			if (value is null || IsDefaultValue(value, property.PropertyType))
+				return result;
+		}
+		else
+		{
+			// User-assigned PK: null or empty string is always an error
+			if (value is null || (value is string s && string.IsNullOrEmpty(s)))
+			{
+				result.AddError(new ValidationError(pkColumn.PropertyName,
+					$"Primary key '{pkColumn.PropertyName}' is required. Non-auto-increment primary keys must have a user-provided value.")
+				{
+					EntityType = entityType.Name
+				});
+				return result;
+			}
 		}
 
 		if (context.ExistingPrimaryKeys.Contains(value))

@@ -98,6 +98,43 @@ public class SnapshotBuilderTests
 		Assert.True(pkColumn.IsAutoIncrement);
 	}
 
+	[Fact]
+	public void BuildFromContext_NumericPK_IsRequired()
+	{
+		var snapshot = SnapshotBuilder.BuildFromContext(typeof(TestContext));
+		var pkColumn = snapshot.Entities["TestUsers"].Columns.First(c => c.IsPrimaryKey);
+
+		Assert.True(pkColumn.IsRequired);
+		Assert.False(pkColumn.IsNullable);
+	}
+
+	[Fact]
+	public void BuildFromContext_StringPK_IsNotAutoIncrement()
+	{
+		var snapshot = SnapshotBuilder.BuildFromContext(typeof(TestContextWithStringPk));
+		var pkColumn = snapshot.Entities["TestAccounts"].Columns.First(c => c.IsPrimaryKey);
+
+		Assert.False(pkColumn.IsAutoIncrement);
+	}
+
+	[Fact]
+	public void BuildFromContext_StringPK_IsRequired()
+	{
+		var snapshot = SnapshotBuilder.BuildFromContext(typeof(TestContextWithStringPk));
+		var pkColumn = snapshot.Entities["TestAccounts"].Columns.First(c => c.IsPrimaryKey);
+
+		Assert.True(pkColumn.IsRequired);
+	}
+
+	[Fact]
+	public void BuildFromContext_StringPK_IsNotNullable()
+	{
+		var snapshot = SnapshotBuilder.BuildFromContext(typeof(TestContextWithStringPk));
+		var pkColumn = snapshot.Entities["TestAccounts"].Columns.First(c => c.IsPrimaryKey);
+
+		Assert.False(pkColumn.IsNullable);
+	}
+
 	// Test context classes
 	private class TestContext : SheetsContext
 	{
@@ -113,6 +150,11 @@ public class SnapshotBuilderTests
 	private class TestContextWithAttr : SheetsContext
 	{
 		public SheetsSet<TestProduct> Products { get; set; } = default!;
+	}
+
+	private class TestContextWithStringPk : SheetsContext
+	{
+		public SheetsSet<TestAccount> Accounts { get; set; } = default!;
 	}
 
 	private class TestUser
@@ -134,5 +176,12 @@ public class SnapshotBuilderTests
 	{
 		public int Id { get; set; }
 		public string Name { get; set; } = "";
+	}
+
+	private class TestAccount
+	{
+		[System.ComponentModel.DataAnnotations.Key]
+		public string Username { get; set; } = "";
+		public string Email { get; set; } = "";
 	}
 }

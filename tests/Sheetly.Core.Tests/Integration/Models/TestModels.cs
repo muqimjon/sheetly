@@ -24,3 +24,10 @@ public class Tag
 	public int Id { get; set; }
 	public string Label { get; set; } = string.Empty;
 }
+
+public class UserAccount
+{
+	[System.ComponentModel.DataAnnotations.Key]
+	public string Username { get; set; } = string.Empty;
+	public string Email { get; set; } = string.Empty;
+}
