@@ -449,3 +449,6 @@ nupkg/
 build.log
 
 nupkg/
+
+# Sheetly Excel data files
+*.xlsx

@@ -52,7 +52,7 @@ public static class DesignTimeOperations
 				.FirstOrDefault(f => Path.GetFileNameWithoutExtension(f)
 					.EndsWith($"_{name}", StringComparison.OrdinalIgnoreCase));
 
-			if (existingMigration != null)
+			if (existingMigration is not null)
 				return Error($"A migration named '{name}' already exists: '{Path.GetFileName(existingMigration)}'");
 
 			string timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
@@ -101,7 +101,7 @@ public static class DesignTimeOperations
 
 			var migrationTypes = contextType.Assembly.GetExportedTypes()
 				.Select(t => new { Type = t, Attr = t.GetCustomAttribute<MigrationAttribute>() })
-				.Where(x => x.Attr != null)
+				.Where(x => x.Attr is not null)
 				.OrderByDescending(x => x.Attr!.Id)
 				.ToList();
 
@@ -115,7 +115,7 @@ public static class DesignTimeOperations
 				.FirstOrDefault(f => !f.Contains("ModelSnapshot") &&
 									 Path.GetFileNameWithoutExtension(f) == migrationId);
 
-			if (migrationFile == null)
+			if (migrationFile is null)
 				return Error($"Migration file for '{migrationId}' not found.");
 
 			string contextName = contextType.Name.Replace("Context", "");
@@ -166,7 +166,7 @@ public static class DesignTimeOperations
 			var snapshotType = contextType.Assembly.GetTypes()
 				.FirstOrDefault(t => t.Name.EndsWith("ModelSnapshot") && t.IsSubclassOf(typeof(MigrationSnapshot)));
 
-			if (snapshotType == null)
+			if (snapshotType is null)
 				return Error("Snapshot not found. Run 'migrations add' first.");
 
 			var snapshot = (MigrationSnapshot)Activator.CreateInstance(snapshotType)!;
@@ -251,15 +251,9 @@ public static class DesignTimeOperations
 	{
 		try
 		{
-			var (provider, _) = CreateProviderFromContext(contextType, connectionString);
-			await provider.InitializeAsync();
-
-			var rows = await provider.GetAllRowsAsync("__SheetlyHistory__");
-			if (rows.Count <= 1)
-				return Error("Migration history not found.");
-
-			var snapshotJson = rows.Last()[2].ToString()!;
-			var snapshot = JsonSerializer.Deserialize<MigrationSnapshot>(snapshotJson)!;
+			var snapshot = LoadExistingSnapshot(contextType);
+			if (snapshot is null || snapshot.Entities.Count == 0)
+				return Error("No model snapshot found. Ensure migrations have been created and the project is built.");
 
 			string contextProjectDir = FindProjectRootFromDll(contextType.Assembly.Location);
 			string finalPath = Path.Combine(contextProjectDir, outputDir ?? "Models/Scaffolded");
@@ -274,6 +268,7 @@ public static class DesignTimeOperations
 				files.Add(fileName);
 			}
 
+			await Task.CompletedTask;
 			return JsonSerializer.Serialize(new { success = true, files });
 		}
 		catch (Exception ex)
@@ -298,7 +293,7 @@ public static class DesignTimeOperations
 		var snapshotType = contextType.Assembly.GetExportedTypes()
 			.FirstOrDefault(t => t.Name == snapshotClassName &&
 							t.Namespace == $"{contextType.Namespace}.Migrations");
-		if (snapshotType == null) return null;
+		if (snapshotType is null) return null;
 		return Activator.CreateInstance(snapshotType) as MigrationSnapshot;
 	}
 
@@ -330,7 +325,7 @@ public static class DesignTimeOperations
 	private static string FindProjectRootFromDll(string dllPath)
 	{
 		var dir = new DirectoryInfo(Path.GetDirectoryName(dllPath)!);
-		while (dir != null && !dir.GetFiles("*.csproj").Any())
+		while (dir is not null && !dir.GetFiles("*.csproj").Any())
 			dir = dir.Parent;
 		return dir?.FullName ?? Path.GetDirectoryName(dllPath)!;
 	}
@@ -408,12 +403,12 @@ public static class DesignTimeOperations
 					if (entities.TryGetValue(alter.Table, out var eAlter))
 					{
 						var col = eAlter.Columns.FirstOrDefault(c => c.Name == alter.Name);
-						if (col != null)
+						if (col is not null)
 						{
-							if (alter.ClrType != null) col.DataType = alter.ClrType.Name;
+							if (alter.ClrType is not null) col.DataType = alter.ClrType.Name;
 							if (alter.IsNullable.HasValue) col.IsNullable = alter.IsNullable.Value;
 							if (alter.MaxLength.HasValue) col.MaxLength = alter.MaxLength;
-							if (alter.DefaultValue != null) col.DefaultValue = alter.DefaultValue;
+							if (alter.DefaultValue is not null) col.DefaultValue = alter.DefaultValue;
 						}
 					}
 					break;
