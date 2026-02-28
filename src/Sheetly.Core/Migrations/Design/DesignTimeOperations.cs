@@ -57,7 +57,10 @@ public static class DesignTimeOperations
 
 			string timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
 			string migrationId = $"{timestamp}_{name}";
-			string targetNamespace = $"{contextType.Namespace}.Migrations";
+			string rootNamespace = contextType.Namespace
+				?? contextType.Assembly.GetName().Name
+				?? "App";
+			string targetNamespace = $"{rootNamespace}.Migrations";
 
 			var generator = new CSharpMigrationGenerator();
 			string migrationCode = generator.GenerateMigration(name, migrationId, targetNamespace, operations);
@@ -120,7 +123,10 @@ public static class DesignTimeOperations
 
 			string contextName = contextType.Name.Replace("Context", "");
 			string snapshotClassName = $"{contextName}ModelSnapshot";
-			string targetNamespace = $"{contextType.Namespace}.Migrations";
+			string rootNamespace = contextType.Namespace
+				?? contextType.Assembly.GetName().Name
+				?? "App";
+			string targetNamespace = $"{rootNamespace}.Migrations";
 
 			var snapshotType = contextType.Assembly.GetExportedTypes()
 				.FirstOrDefault(t => t.Name == snapshotClassName && t.Namespace == targetNamespace)
@@ -290,9 +296,12 @@ public static class DesignTimeOperations
 	{
 		string contextName = contextType.Name.Replace("Context", "");
 		string snapshotClassName = $"{contextName}ModelSnapshot";
+		string rootNamespace = contextType.Namespace
+			?? contextType.Assembly.GetName().Name
+			?? "App";
 		var snapshotType = contextType.Assembly.GetExportedTypes()
 			.FirstOrDefault(t => t.Name == snapshotClassName &&
-							t.Namespace == $"{contextType.Namespace}.Migrations");
+							t.Namespace == $"{rootNamespace}.Migrations");
 		if (snapshotType is null) return null;
 		return Activator.CreateInstance(snapshotType) as MigrationSnapshot;
 	}

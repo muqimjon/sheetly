@@ -38,6 +38,8 @@ jobs:
             -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
           dotnet nuget push nupkg/Sheetly.Google.${{ steps.version.outputs.version }}.nupkg \
             -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
+          dotnet nuget push nupkg/Sheetly.Excel.${{ steps.version.outputs.version }}.nupkg \
+            -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
           dotnet nuget push nupkg/Sheetly.DependencyInjection.${{ steps.version.outputs.version }}.nupkg \
             -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
           dotnet nuget push nupkg/dotnet-sheetly.${{ steps.version.outputs.version }}.nupkg \
