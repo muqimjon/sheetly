@@ -1,4 +1,4 @@
-﻿using Sheetly.CLI.Helpers;
+using Sheetly.CLI.Helpers;
 using System.CommandLine;
 
 namespace Sheetly.CLI.Commands;
@@ -30,7 +30,7 @@ public class ScriptCommand : Command
 
 			var json = CliHelper.InvokeDesignTime(coreAsm, "GetSchemaScript", contextType);
 			var doc = CliHelper.ParseResult(json);
-			if (doc == null) return;
+			if (doc is null) return;
 
 			Console.Write(doc.RootElement.GetProperty("script").GetString());
 		}

@@ -34,7 +34,6 @@ public class ListCommand : Command
 				return;
 			}
 
-			// List C# migration files (exclude ModelSnapshot)
 			var migrations = Directory.GetFiles(migrationsDir, "*.cs")
 				.Where(f => !f.Contains("ModelSnapshot"))
 				.OrderBy(f => f)

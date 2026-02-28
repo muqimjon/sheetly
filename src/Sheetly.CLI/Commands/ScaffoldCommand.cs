@@ -1,4 +1,4 @@
-﻿using Sheetly.CLI.Helpers;
+using Sheetly.CLI.Helpers;
 using System.CommandLine;
 
 namespace Sheetly.CLI.Commands;
@@ -37,7 +37,7 @@ public class ScaffoldCommand : Command
 			Console.WriteLine("⏳ Scaffolding models from remote provider...");
 			var json = CliHelper.InvokeDesignTime(coreAsm, "ScaffoldAsync", contextType, outputDir, connStr);
 			var doc = CliHelper.ParseResult(json);
-			if (doc == null) return;
+			if (doc is null) return;
 
 			foreach (var f in doc.RootElement.GetProperty("files").EnumerateArray())
 				Console.WriteLine($"📄 Created: {f.GetString()}");

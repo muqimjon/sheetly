@@ -1,4 +1,4 @@
-﻿using Sheetly.CLI.Commands;
+using Sheetly.CLI.Commands;
 using System.CommandLine;
 using System.Reflection;
 
@@ -7,23 +7,19 @@ var version = Assembly
 	.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
 	.InformationalVersion;
 
-// Root Command
 RootCommand rootCommand = new("Sheetly CLI - Google Sheets ORM Tool");
 
 var migrationsCommand = new Command("migrations", "Manage migrations");
 var databaseCommand = new Command("database", "Manage the database");
 
-// Migrations subcommands
 migrationsCommand.Subcommands.Add(new AddCommand());
 migrationsCommand.Subcommands.Add(new RemoveCommand());
 migrationsCommand.Subcommands.Add(new ListCommand());
 migrationsCommand.Subcommands.Add(new ScriptCommand());
 
-// Database subcommands
 databaseCommand.Subcommands.Add(new UpdateCommand());
 databaseCommand.Subcommands.Add(new DropCommand());
 
-// Add to root
 rootCommand.Subcommands.Add(migrationsCommand);
 rootCommand.Subcommands.Add(databaseCommand);
 rootCommand.Subcommands.Add(new ScaffoldCommand());

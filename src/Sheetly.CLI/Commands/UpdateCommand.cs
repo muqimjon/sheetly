@@ -36,7 +36,7 @@ public class UpdateCommand : Command
 			Console.WriteLine("⏳ Applying pending migrations...");
 			var json = CliHelper.InvokeDesignTime(coreAsm, "UpdateDatabaseAsync", contextType, connStr);
 			var doc = CliHelper.ParseResult(json);
-			if (doc == null) return;
+			if (doc is null) return;
 
 			var root = doc.RootElement;
 			int total = root.GetProperty("total").GetInt32();
@@ -55,7 +55,7 @@ public class UpdateCommand : Command
 		catch (Exception ex)
 		{
 			Console.WriteLine($"❌ Error: {ex.Message}");
-			if (ex.InnerException != null) Console.WriteLine($"🔍 Detail: {ex.InnerException.Message}");
+			if (ex.InnerException is not null) Console.WriteLine($"🔍 Detail: {ex.InnerException.Message}");
 		}
 	}
 }

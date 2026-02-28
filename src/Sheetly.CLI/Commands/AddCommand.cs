@@ -47,7 +47,7 @@ public class AddCommand : Command
 
 			var json = CliHelper.InvokeDesignTime(coreAsm, "AddMigration", contextType, name, outputDir);
 			var doc = CliHelper.ParseResult(json);
-			if (doc == null) return;
+			if (doc is null) return;
 
 			var root = doc.RootElement;
 			Console.WriteLine($"✅ Migration created: '{root.GetProperty("migrationFile").GetString()}'");

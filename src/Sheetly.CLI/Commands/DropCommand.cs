@@ -1,4 +1,4 @@
-﻿using Sheetly.CLI.Helpers;
+using Sheetly.CLI.Helpers;
 using System.CommandLine;
 
 namespace Sheetly.CLI.Commands;
@@ -41,7 +41,7 @@ public class DropCommand : Command
 
 			var json = CliHelper.InvokeDesignTime(coreAsm, "DropDatabaseAsync", contextType, connStr);
 			var doc = CliHelper.ParseResult(json);
-			if (doc == null) return;
+			if (doc is null) return;
 
 			Console.WriteLine("✅ Database dropped successfully.");
 		}

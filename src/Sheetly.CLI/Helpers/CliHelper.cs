@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration;
 using System.Reflection;
 using System.Text.Json;
 
@@ -39,7 +39,6 @@ public static class CliHelper
 
 		var result = method.Invoke(null, args);
 
-		// Handle async methods (Task<string>)
 		if (result is Task task)
 		{
 			task.GetAwaiter().GetResult();
@@ -75,7 +74,7 @@ public static class CliHelper
 
 	public static bool IsSubclassOfSheetsContext(Type? type)
 	{
-		while (type != null && type != typeof(object))
+		while (type is not null && type != typeof(object))
 		{
 			if (type.FullName == "Sheetly.Core.SheetsContext") return true;
 			type = type.BaseType;
@@ -97,7 +96,7 @@ public static class CliHelper
 	{
 		if (!string.IsNullOrEmpty(manualPath)) return manualPath;
 		var csproj = Directory.GetFiles(Directory.GetCurrentDirectory(), "*.csproj").FirstOrDefault();
-		if (csproj == null) return string.Empty;
+		if (csproj is null) return string.Empty;
 
 		if (!noBuild)
 		{
@@ -125,7 +124,7 @@ public static class CliHelper
 	public static string FindProjectRootFromDll(string dllPath)
 	{
 		var dir = new DirectoryInfo(Path.GetDirectoryName(dllPath)!);
-		while (dir != null && !dir.GetFiles("*.csproj").Any()) dir = dir.Parent;
+		while (dir is not null && !dir.GetFiles("*.csproj").Any()) dir = dir.Parent;
 		return dir?.FullName ?? Path.GetDirectoryName(dllPath)!;
 	}
 

@@ -18,8 +18,7 @@ internal sealed class ProjectAssemblyLoadContext : AssemblyLoadContext
 
 	protected override Assembly? Load(AssemblyName assemblyName)
 	{
-		// Resolve from the project's own bin directory first
 		var path = _resolver.ResolveAssemblyToPath(assemblyName);
-		return path != null ? LoadFromAssemblyPath(path) : null;
+		return path is not null ? LoadFromAssemblyPath(path) : null;
 	}
 }
