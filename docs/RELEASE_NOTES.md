@@ -31,18 +31,6 @@ options.UseExcel("path/to/file.xlsx");
 - If the counter is `0` (first run or legacy data), the provider scans the existing data sheet for the current max ID and continues from there
 - **Non-numeric primary keys** (string, Guid) are user-assigned — no auto-increment, required validation is enforced automatically
 
-### Primary Constructor Refactoring
-
-- `DatabaseFacade` refactored to C# 12 primary constructor syntax
-- Consistent with `GoogleMigrationService` and `ExcelMigrationService` already using primary constructors
-
-### Other Improvements
-
-- `ProductVersion` in `__SheetlyMigrationsHistory__` now reflects the actual NuGet assembly version
-- Boolean schema columns parsed case-insensitively (`bool.TryParse`) — fixes Google Sheets USERENTERED mode storing `True` as `TRUE`
-- Build-first behavior applies to both providers — the user project is built before CLI commands execute
-- Inline comments removed from all source files; `is null` / `is not null` null checks enforced throughout
-
 ---
 
 ## 📦 Packages
@@ -75,30 +63,4 @@ options.UseExcel("path/to/file.xlsx");
 
 ## 🔮 Roadmap
 
-### v1.2.0
-
 - **Navigation property auto-resolution** — `product.Category = new Category { Name = "Books" }` automatically resolves and assigns `CategoryId`
-- Advanced LINQ support (`OrderBy`, `Select`, `Skip`, `Take`)
-- Query result caching
-
----
-
-## 📜 Version History
-
-### v1.0.1 — February 23, 2026
-
-- **CLI banner** — EF Core-style terminal output with teal rocket art
-- **`OnConfiguring` detection** — `dotnet sheetly database update` reads connection settings directly from `OnConfiguring()`, no `appsettings.json` required
-- **Build-first behavior** — All CLI commands build the project before executing (like `dotnet ef`)
-- **Version output** — Removed git commit hash from `--version` output
-- **Brand logo** — Added official icon to all NuGet packages
-- **CI/CD** — GitHub Actions workflows for automatic NuGet publishing
-
-### v1.0.0 — February 2026
-
-- Initial release: `SheetsContext`, `SheetsSet<T>`, CRUD, migrations, CLI tool, Google Sheets provider
-- Constraint validation (PK, FK, Required, MaxLength, Range, Unique, Check, DataType)
-
----
-
-**Created by** [Muqimjon Mamadaliyev](https://github.com/muqimjon) · MIT License
