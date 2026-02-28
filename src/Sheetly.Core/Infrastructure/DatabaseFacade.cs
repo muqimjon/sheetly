@@ -6,44 +6,29 @@ using System.Reflection;
 
 namespace Sheetly.Core.Infrastructure;
 
-public class DatabaseFacade
+public class DatabaseFacade(ISheetsProvider provider, IMigrationService? migrationService, Type contextType)
 {
-	private readonly ISheetsProvider _provider;
-	private readonly IMigrationService? _migrationService;
-	private readonly Type _contextType;
-
-	public DatabaseFacade(ISheetsProvider provider, IMigrationService? migrationService, Type contextType)
-	{
-		_provider = provider;
-		_migrationService = migrationService;
-		_contextType = contextType;
-	}
-
-	/// <summary>
-	/// Applies all pending migrations.
-	/// </summary>
 	public async Task MigrateAsync()
 	{
-		if (_migrationService == null)
+		if (migrationService is null)
 			throw new InvalidOperationException("MigrationService is not configured. Ensure UseGoogleSheets is called in OnConfiguring.");
 
-		var assembly = _contextType.Assembly;
-		var applied = await _migrationService.GetAppliedMigrationsAsync();
+		var assembly = contextType.Assembly;
+		var applied = await migrationService.GetAppliedMigrationsAsync();
 
 		var migrationTypes = assembly.GetTypes()
 			.Where(t => t.IsSubclassOf(typeof(Migrations.Migration)) && !t.IsAbstract)
 			.Select(t => new { Type = t, Attr = t.GetCustomAttribute<MigrationAttribute>() })
-			.Where(x => x.Attr != null)
+			.Where(x => x.Attr is not null)
 			.OrderBy(x => x.Attr!.Id)
 			.ToList();
 
 		var pending = migrationTypes.Where(x => !applied.Contains(x.Attr!.Id)).ToList();
 		if (pending.Count == 0) return;
 
-		// Load snapshot for enriching operations with ClassName/IsAutoIncrement
 		var snapshotType = assembly.GetTypes()
 			.FirstOrDefault(t => t.Name.EndsWith("ModelSnapshot") && t.IsSubclassOf(typeof(MigrationSnapshot)));
-		var snapshot = snapshotType != null
+		var snapshot = snapshotType is not null
 			? (MigrationSnapshot?)Activator.CreateInstance(snapshotType)
 			: null;
 
@@ -55,21 +40,21 @@ public class DatabaseFacade
 			var operations = builder.GetOperations();
 
 			EnrichOperations(operations, snapshot);
-			await _migrationService.ApplyMigrationAsync(operations, m.Attr!.Id);
+			await migrationService.ApplyMigrationAsync(operations, m.Attr!.Id);
 		}
 	}
 
 	public async Task<List<string>> GetPendingMigrationsAsync()
 	{
-		if (_migrationService == null) return [];
+		if (migrationService is null) return [];
 
-		var assembly = _contextType.Assembly;
-		var applied = await _migrationService.GetAppliedMigrationsAsync();
+		var assembly = contextType.Assembly;
+		var applied = await migrationService.GetAppliedMigrationsAsync();
 
 		return assembly.GetTypes()
 			.Where(t => t.IsSubclassOf(typeof(Migrations.Migration)) && !t.IsAbstract)
 			.Select(t => t.GetCustomAttribute<MigrationAttribute>()?.Id)
-			.Where(id => id != null && !applied.Contains(id))
+			.Where(id => id is not null && !applied.Contains(id))
 			.Cast<string>()
 			.OrderBy(id => id)
 			.ToList();
@@ -77,12 +62,12 @@ public class DatabaseFacade
 
 	public async Task DropDatabaseAsync()
 	{
-		await _provider.DropDatabaseAsync();
+		await provider.DropDatabaseAsync();
 	}
 
 	private static void EnrichOperations(List<MigrationOperation> operations, MigrationSnapshot? snapshot)
 	{
-		if (snapshot == null) return;
+		if (snapshot is null) return;
 
 		foreach (var op in operations.OfType<CreateTableOperation>())
 		{
@@ -92,7 +77,7 @@ public class DatabaseFacade
 			foreach (var col in op.Columns)
 			{
 				var snapshotCol = entity.Columns.FirstOrDefault(c => c.Name == col.Name);
-				if (snapshotCol == null) continue;
+				if (snapshotCol is null) continue;
 				col.IsAutoIncrement = snapshotCol.IsAutoIncrement;
 				if (snapshotCol.IsPrimaryKey) col.IsUnique = true;
 			}
@@ -102,7 +87,7 @@ public class DatabaseFacade
 		{
 			if (!snapshot.Entities.TryGetValue(op.Table, out var entity)) continue;
 			var snapshotCol = entity.Columns.FirstOrDefault(c => c.Name == op.Name);
-			if (snapshotCol == null) continue;
+			if (snapshotCol is null) continue;
 			op.IsAutoIncrement = snapshotCol.IsAutoIncrement;
 			op.ClassName = entity.ClassName;
 			if (snapshotCol.IsPrimaryKey) op.IsUnique = true;

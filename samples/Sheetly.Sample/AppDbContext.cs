@@ -1,6 +1,6 @@
-﻿using Microsoft.Extensions.Configuration;
-using Sheetly.Core;
+﻿using Sheetly.Core;
 using Sheetly.Core.Configuration;
+using Sheetly.Excel;
 using Sheetly.Google;
 using Sheetly.Sample.Models;
 
@@ -13,17 +13,8 @@ public class AppDbContext : SheetsContext
 
 	protected override void OnConfiguring(SheetsOptions options)
 	{
-		var config = new ConfigurationBuilder()
-			.SetBasePath(Directory.GetCurrentDirectory())
-			.AddJsonFile("appsettings.json")
-			.Build();
-
-		var connectionString = config.GetConnectionString("DefaultConnection");
-
-		if (string.IsNullOrEmpty(connectionString))
-			throw new Exception("Connection string 'DefaultConnection' not found.");
-
-		options.UseGoogleSheets(connectionString);
+			//options.UseExcel("C:\\Users\\muqim\\OneDrive\\Ishchi stol\\sheetly-test.xlsx");
+		options.UseGoogleSheets("1bNZnlJJ81VLbM5VeWoy9uCq4Ynz2bkAXaJlFJAYy_Sc", "credentials.json");
 	}
 
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -46,9 +37,9 @@ public class AppDbContext : SheetsContext
 				.HasMaxLength(200);
 			e.Property(p => p.Price)
 				.IsRequired()
-				.HasRange(0, 1000000); // Price must be between 0 and 1,000,000
+				.HasRange(0, 1000000);
 			e.Property(p => p.Description)
-				.HasMaxLength(500); // Optional description, max 500 chars
+				.HasMaxLength(500);
 		});
 	}
 }

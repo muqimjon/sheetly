@@ -5,7 +5,7 @@
 		<Nullable>enable</Nullable>
 
 		<PackageId>Sheetly.DependencyInjection</PackageId>
-		<Version>1.0.3</Version>
+		<Version>1.1.0</Version>
 		<Company>Dotnetolog</Company>
 		<Authors>Muqimjon Mamadaliyev</Authors>
 		<Copyright>Copyright (c) 2025–2026 Muqimjon Mamadaliyev</Copyright>

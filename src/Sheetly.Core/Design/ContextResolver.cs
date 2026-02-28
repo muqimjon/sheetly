@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 
 namespace Sheetly.Core.Design;
 
@@ -10,7 +10,7 @@ public static class ContextResolver
 			!t.IsInterface && !t.IsAbstract &&
 			t.GetInterfaces().Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IDesignTimeSheetsContextFactory<>)));
 
-		if (factoryType != null)
+		if (factoryType is not null)
 		{
 			var factory = Activator.CreateInstance(factoryType);
 			var method = factoryType.GetMethod("CreateDbContext");
@@ -18,9 +18,9 @@ public static class ContextResolver
 		}
 
 		var contextType = assembly.GetTypes().FirstOrDefault(t =>
-			t.BaseType != null && (t.BaseType.Name == "SheetsContext" || t.BaseType.Name.Contains("SheetsContext")) && !t.IsAbstract);
+			t.BaseType is not null && (t.BaseType.Name == "SheetsContext" || t.BaseType.Name.Contains("SheetsContext")) && !t.IsAbstract);
 
-		if (contextType == null) throw new Exception("Project does not contain a class inheriting from SheetsContext.");
+		if (contextType is null) throw new Exception("Project does not contain a class inheriting from SheetsContext.");
 
 		return (SheetsContext)Activator.CreateInstance(contextType)!;
 	}

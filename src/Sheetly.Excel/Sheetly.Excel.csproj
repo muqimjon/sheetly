@@ -1,0 +1,38 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+
+		<PackageId>Sheetly.Excel</PackageId>
+		<Version>1.1.0</Version>
+		<Company>Dotnetolog</Company>
+		<Authors>Muqimjon Mamadaliyev</Authors>
+		<Copyright>Copyright (c) 2025–2026 Muqimjon Mamadaliyev</Copyright>
+		<Description>Excel (.xlsx) provider for Sheetly ORM. Enables Entity Framework Core-like access to local Excel files with migrations and constraints.</Description>
+		<PackageTags>excel;xlsx;spreadsheet;sheetly;orm;provider</PackageTags>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
+		<RepositoryUrl>https://github.com/muqimjon/sheetly</RepositoryUrl>
+		<RepositoryType>git</RepositoryType>
+		<PackageProjectUrl>https://github.com/muqimjon/sheetly</PackageProjectUrl>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<PackageIcon>icon.png</PackageIcon>
+
+		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<None Include="..\..\README.md" Pack="true" PackagePath="\" />
+		<None Include="..\..\assets\icon.png" Pack="true" PackagePath="\" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Sheetly.Core\Sheetly.Core.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="ClosedXML" Version="0.105.0" />
+	</ItemGroup>
+
+</Project>

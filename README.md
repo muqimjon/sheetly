@@ -2,6 +2,8 @@
 
 [![Sheetly.Core](https://img.shields.io/nuget/v/Sheetly.Core.svg?label=Sheetly.Core&color=2f7f73)](https://www.nuget.org/packages/Sheetly.Core/)
 [![Sheetly.Google](https://img.shields.io/nuget/v/Sheetly.Google.svg?label=Sheetly.Google&color=2f7f73)](https://www.nuget.org/packages/Sheetly.Google/)
+[![Sheetly.Excel](https://img.shields.io/nuget/v/Sheetly.Excel.svg?label=Sheetly.Excel&color=2f7f73)](https://www.nuget.org/packages/Sheetly.Excel/)
+[![Sheetly.DependencyInjection](https://img.shields.io/nuget/v/Sheetly.DependencyInjection.svg?label=Sheetly.DependencyInjection&color=2f7f73)](https://www.nuget.org/packages/Sheetly.DependencyInjection/)
 [![dotnet-sheetly](https://img.shields.io/nuget/v/dotnet-sheetly.svg?label=dotnet-sheetly&color=2f7f73)](https://www.nuget.org/packages/dotnet-sheetly/)
 [![License-MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -9,7 +11,7 @@
 
 ## 🌟 Why Sheetly?
 
-Sheetly brings the **Entity Framework Core developer experience** to Google Sheets. If you know EF Core, you already know Sheetly.
+Sheetly brings the **Entity Framework Core developer experience** to Google Sheets and Excel. If you know EF Core, you already know Sheetly.
 
 ```csharp
 public class Product 
@@ -32,7 +34,8 @@ public class AppContext : SheetsContext
 
     protected override void OnConfiguring(SheetsOptions options)
     {
-        options.UseGoogleSheets("credentials.json", "your-spreadsheet-id");
+        options.UseGoogleSheets("your-spreadsheet-id", "credentials.json");
+        // or: options.UseExcel("data.xlsx");
     }
     
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -54,7 +57,7 @@ context.Products.Add(new Product { Name = "Laptop", Price = 1200 });
 await context.SaveChangesAsync();
 
 var products = await context.Products
-    .Include("Category")
+    .Include(p => p.Category)
     .ToListAsync();
 ```
 
@@ -65,9 +68,12 @@ var products = await context.Products
 ### 🎯 **EF Core-Style API**
 - `SheetsContext` and `SheetsSet<T>` — familiar patterns
 - `Add()`, `Update()`, `Remove()`, `SaveChangesAsync()`
-- `Include()` for eager loading
+- **Automatic change tracking** — modify entities and call `SaveChangesAsync()` without explicit `Update()`
+- `Include()` with **string** and **expression-based** overloads (`Include(p => p.Category)`)
 - `AsNoTracking()` for read-only queries
 - `FindAsync()`, `FirstOrDefaultAsync()`, `Where()`, `CountAsync()`, `AnyAsync()`
+- `CancellationToken` support on `SaveChangesAsync()`
+- `IAsyncDisposable` — use `await using` for automatic cleanup
 
 ### 🔄 **Code-First Migrations**
 - C# migration files with Up/Down methods
@@ -90,10 +96,14 @@ dotnet sheetly database update
 - Column mapping (`HasColumnName()`)
 - Local validation before API calls
 
-### 🛡️ **Schema Tracking**
+### 🛡️ **Schema Tracking & Performance**
 - Hidden **\_\_SheetlySchema\_\_** sheet stores all metadata
 - Hidden **\_\_SheetlyMigrationsHistory\_\_** tracks applied migrations
+- **Batch operations** — adding N entities uses a single API call
+- **In-memory sheet metadata cache** — `SheetExistsAsync` costs 0 API calls after init
+- **Optimized `FindAsync`** — scans only the PK column instead of full data
 - Automatic retry with exponential backoff on rate limits
+- **Multiple credentials rotation** — distribute API quota across service accounts
 
 ### 🧰 **Professional CLI**
 ```bash
@@ -115,12 +125,16 @@ dotnet sheetly scaffold
 |---|---|
 | [`Sheetly.Core`](https://www.nuget.org/packages/Sheetly.Core/) | Core abstractions, migrations, validation |
 | [`Sheetly.Google`](https://www.nuget.org/packages/Sheetly.Google/) | Google Sheets API provider |
+| [`Sheetly.Excel`](https://www.nuget.org/packages/Sheetly.Excel/) | Local Excel (.xlsx) file provider |
 | [`dotnet-sheetly`](https://www.nuget.org/packages/dotnet-sheetly/) | CLI tool for migrations |
 | [`Sheetly.DependencyInjection`](https://www.nuget.org/packages/Sheetly.DependencyInjection/) | ASP.NET Core DI integration |
 
 ```bash
 dotnet add package Sheetly.Core
-dotnet add package Sheetly.Google
+
+# Pick your provider:
+dotnet add package Sheetly.Google   # Google Sheets (online)
+dotnet add package Sheetly.Excel    # Excel .xlsx (local)
 
 # For ASP.NET Core apps
 dotnet add package Sheetly.DependencyInjection
@@ -133,7 +147,9 @@ dotnet tool install -g dotnet-sheetly
 
 ## 🚀 Quick Start
 
-### 1. **Setup Google Sheets API**
+### Option A: **Google Sheets** (Online)
+
+#### 1. Setup Google Sheets API
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a new project
@@ -141,6 +157,30 @@ dotnet tool install -g dotnet-sheetly
 4. Create credentials (Service Account)
 5. Download `credentials.json`
 6. Share your spreadsheet with the service account email
+
+#### 2. Configure
+
+```csharp
+protected override void OnConfiguring(SheetsOptions options)
+{
+    options.UseGoogleSheets("your-spreadsheet-id", "credentials.json");
+}
+```
+
+### Option B: **Excel** (Local .xlsx)
+
+```bash
+dotnet add package Sheetly.Excel
+```
+
+```csharp
+protected override void OnConfiguring(SheetsOptions options)
+{
+    options.UseExcel("C:/data/myapp.xlsx");
+}
+```
+
+No API keys, no internet — all data stays on disk.
 
 ### 2. **Create Your Models**
 
@@ -179,7 +219,8 @@ public class MyAppContext : SheetsContext
 
     protected override void OnConfiguring(SheetsOptions options)
     {
-        options.UseGoogleSheets("credentials.json", "your-spreadsheet-id");
+        options.UseGoogleSheets("your-spreadsheet-id", "credentials.json");
+        // or: options.UseExcel("mydata.xlsx");
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -228,14 +269,13 @@ context.Products.Add(product);
 await context.SaveChangesAsync();
 
 // Query with Include
-var products = await context.Products.Include("Category").ToListAsync();
+var products = await context.Products.Include(p => p.Category).ToListAsync();
 
 foreach (var p in products)
     Console.WriteLine($"{p.Title} - ${p.Price} - {p.Category.Name}");
 
-// Update
+// Update (auto change tracking — no explicit Update() needed)
 product.Price = 1100;
-context.Products.Update(product);
 await context.SaveChangesAsync();
 
 // Delete
@@ -274,8 +314,19 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 ### **ASP.NET Core Integration**
 
 ```csharp
+// Parameterless constructor (classic)
 builder.Services.AddSheetsContext<MyAppContext>(options =>
-    options.UseGoogleSheets("credentials.json", "spreadsheet-id"));
+    options.UseGoogleSheets("spreadsheet-id", "credentials.json"));
+
+// Options constructor (EF Core-style)
+public class MyAppContext : SheetsContext
+{
+    public MyAppContext(SheetsContextOptions<MyAppContext> options) : base(options) { }
+    public SheetsSet<Product> Products { get; set; }
+}
+
+builder.Services.AddSheetsContext<MyAppContext>(options =>
+    options.UseGoogleSheets("spreadsheet-id", "credentials.json"));
 ```
 
 ### **AsNoTracking**
@@ -294,6 +345,44 @@ var count = await context.Products.CountAsync();
 var any = await context.Products.AnyAsync(p => p.Price > 0);
 ```
 
+### **Expression-Based Include**
+
+```csharp
+// Type-safe — compile-time validation
+var products = await context.Products.Include(p => p.Category).ToListAsync();
+var categories = await context.Categories.Include(c => c.Products).ToListAsync();
+
+// String-based still supported
+var products2 = await context.Products.Include("Category").ToListAsync();
+```
+
+### **Automatic Change Tracking**
+
+```csharp
+var products = await context.Products.ToListAsync();
+products.First().Price = 999;
+
+// No need for context.Products.Update(product) — changes are auto-detected
+await context.SaveChangesAsync();
+```
+
+### **Multiple Credentials (API Quota Rotation)**
+
+```csharp
+// credentials.json can be a single object or an array:
+// [{ "type": "service_account", ... }, { "type": "service_account", ... }]
+// Each API call rotates to the next credential (round-robin)
+// Effective limit: N accounts × 60 req/min = N×60 req/min
+options.UseGoogleSheets("spreadsheet-id", "credentials.json");
+```
+
+### **CancellationToken Support**
+
+```csharp
+var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+await context.SaveChangesAsync(cts.Token);
+```
+
 ---
 
 ## 🏗️ Architecture
@@ -301,7 +390,8 @@ var any = await context.Products.AnyAsync(p => p.Price > 0);
 ```
 Sheetly/
 ├── Sheetly.Core                  # Core: context, sets, migrations, validation
-├── Sheetly.Google                # Google Sheets API provider
+├── Sheetly.Google                # Google Sheets API provider (online)
+├── Sheetly.Excel                 # Excel .xlsx provider (local)
 ├── Sheetly.DependencyInjection   # ASP.NET Core DI extensions
 └── dotnet-sheetly (CLI)          # Command-line migration tool
 ```
@@ -310,7 +400,7 @@ Sheetly/
 
 ## 📊 How It Works
 
-Sheetly creates **hidden sheets** in your Google Spreadsheet:
+Sheetly creates **hidden sheets** in your spreadsheet (Google Sheets or local .xlsx):
 
 | Sheet | Purpose |
 |---|---|

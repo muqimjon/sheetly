@@ -1,10 +1,5 @@
-﻿using Sheetly.CLI.Helpers;
-using Sheetly.Core;
-using Sheetly.Core.Migration;
-using Sheetly.Google;
+using Sheetly.CLI.Helpers;
 using System.CommandLine;
-using System.Reflection;
-using System.Text.Json;
 
 namespace Sheetly.CLI.Commands;
 
@@ -12,52 +7,41 @@ public class ScaffoldCommand : Command
 {
 	private readonly Option<string?> _projectOption = new("--project", ["-p"]);
 	private readonly Option<string?> _outputDirOption = new("--output-dir", ["-o"]);
+	private readonly Option<bool> _noBuildOption = new("--no-build", ["-n"]) { Description = "Do not build project" };
 
-	public ScaffoldCommand() : base("scaffold", "Scaffold model classes from Google Sheets")
+	public ScaffoldCommand() : base("scaffold", "Scaffold model classes from remote provider")
 	{
 		this.Add(_projectOption);
 		this.Add(_outputDirOption);
+		this.Add(_noBuildOption);
 		this.SetAction(async (parseResult, ct) => await ExecuteAsync(
+			parseResult.GetValue(_noBuildOption),
 			parseResult.GetValue(_projectOption),
 			parseResult.GetValue(_outputDirOption),
 			ct));
 	}
 
-	private async Task ExecuteAsync(string? projectPath, string? outputDir, CancellationToken ct)
+	private async Task ExecuteAsync(bool noBuild, string? projectPath, string? outputDir, CancellationToken ct)
 	{
-		string dllPath = CliHelper.FindProjectDll(true, projectPath);
+		string dllPath = CliHelper.FindProjectDll(noBuild, projectPath);
 		if (string.IsNullOrEmpty(dllPath)) return;
 
 		try
 		{
-			var assembly = Assembly.LoadFrom(Path.GetFullPath(dllPath));
-			var contextType = assembly.GetExportedTypes().FirstOrDefault(t => CliHelper.IsSubclassOfSheetsContext(t))
-				?? throw new Exception("SheetsContext not found.");
+			var (assembly, loadContext) = CliHelper.LoadAssemblyIsolated(dllPath);
+			var coreAsm = CliHelper.GetCoreAssembly(assembly, loadContext);
+			var contextType = CliHelper.FindContextType(assembly);
 
-			string contextProjectDir = CliHelper.FindProjectRootFromDll(dllPath);
-			string? connStr = CliHelper.GetConnectionString(contextProjectDir)
-				?? CliHelper.GetConnectionStringFromContext(contextType);
+			string? connStr = CliHelper.GetConnectionString(CliHelper.FindProjectRootFromDll(dllPath));
 
-			var method = typeof(GoogleSheetsFactory).GetMethods().First(m => m.Name == "CreateContextAsync").MakeGenericMethod(contextType);
-			var task = (Task)method.Invoke(null, [connStr])!;
-			await task;
-			var context = (SheetsContext)((dynamic)task).Result;
+			Console.WriteLine("⏳ Scaffolding models from remote provider...");
+			var json = CliHelper.InvokeDesignTime(coreAsm, "ScaffoldAsync", contextType, outputDir, connStr);
+			var doc = CliHelper.ParseResult(json);
+			if (doc is null) return;
 
-			var rows = await context.Provider.GetAllRowsAsync("__SheetlyHistory__");
-			if (rows.Count <= 1) throw new Exception("Migration history not found.");
+			foreach (var f in doc.RootElement.GetProperty("files").EnumerateArray())
+				Console.WriteLine($"📄 Created: {f.GetString()}");
 
-			var snapshotJson = rows.Last()[2].ToString()!;
-			var snapshot = JsonSerializer.Deserialize<MigrationSnapshot>(snapshotJson)!;
-
-			string finalPath = Path.Combine(contextProjectDir, outputDir ?? "Models/Scaffolded");
-			Directory.CreateDirectory(finalPath);
-
-			foreach (var entity in snapshot.Entities.Values)
-			{
-				var code = CliHelper.GenerateClassCode(entity);
-				await File.WriteAllTextAsync(Path.Combine(finalPath, $"{entity.ClassName}.cs"), code, ct);
-				Console.WriteLine($"📄 Created: {entity.ClassName}.cs");
-			}
 			Console.WriteLine("✅ Scaffolding complete.");
 		}
 		catch (Exception ex) { Console.WriteLine($"❌ Error: {ex.Message}"); }

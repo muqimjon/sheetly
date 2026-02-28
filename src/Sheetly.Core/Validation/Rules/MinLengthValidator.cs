@@ -9,7 +9,7 @@ public class MinLengthValidator : IValidationRule
 	{
 		var result = new ValidationResult();
 
-		if (context.Schema == null) return result;
+		if (context.Schema is null) return result;
 
 		var entityType = entity.GetType();
 
@@ -18,11 +18,10 @@ public class MinLengthValidator : IValidationRule
 			if (!column.MinLength.HasValue) continue;
 
 			var property = entityType.GetProperty(column.PropertyName);
-			if (property == null) continue;
+			if (property is null) continue;
 
 			var value = property.GetValue(entity);
 
-			// Only validate non-null strings; null/empty is handled by NullabilityValidator
 			if (value is string str && str.Length < column.MinLength.Value)
 			{
 				result.AddError(new ValidationError(column.PropertyName,

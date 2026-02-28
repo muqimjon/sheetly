@@ -1,10 +1,5 @@
 using Sheetly.CLI.Helpers;
-using Sheetly.Core;
-using Sheetly.Core.Migration;
-using Sheetly.Core.Migrations;
-using Sheetly.Core.Migrations.Design;
 using System.CommandLine;
-using System.Reflection;
 
 namespace Sheetly.CLI.Commands;
 
@@ -46,83 +41,22 @@ public class AddCommand : Command
 
 		try
 		{
-			var assembly = Assembly.LoadFrom(Path.GetFullPath(dllPath));
-			var contextType = assembly.GetExportedTypes().FirstOrDefault(t => CliHelper.IsSubclassOfSheetsContext(t))
-				?? throw new Exception("SheetsContext not found.");
+			var (assembly, loadContext) = CliHelper.LoadAssemblyIsolated(dllPath);
+			var coreAsm = CliHelper.GetCoreAssembly(assembly, loadContext);
+			var contextType = CliHelper.FindContextType(assembly);
 
-			var context = Activator.CreateInstance(contextType)!;
-			string contextProjectDir = CliHelper.FindProjectRootFromDll(contextType.Assembly.Location);
+			var json = CliHelper.InvokeDesignTime(coreAsm, "AddMigration", contextType, name, outputDir);
+			var doc = CliHelper.ParseResult(json);
+			if (doc is null) return;
 
-			outputDir ??= "Migrations";
-			var modelBuilder = new ModelBuilder();
-			var onModelCreatingMethod = contextType.GetMethod("OnModelCreating", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-			onModelCreatingMethod?.Invoke(context, [modelBuilder]);
+			var root = doc.RootElement;
+			Console.WriteLine($"✅ Migration created: '{root.GetProperty("migrationFile").GetString()}'");
+			Console.WriteLine($"✅ Model snapshot updated: '{root.GetProperty("snapshotFile").GetString()}'");
 
-			// Build current snapshot — must include fluent API metadata to match SheetsContext.InitializeAsync
-			var currentSnapshot = SnapshotBuilder.BuildFromContext(contextType, modelBuilder.GetMetadata());
-
-			string finalPath = Path.Combine(contextProjectDir, outputDir);
-			Directory.CreateDirectory(finalPath);
-
-			MigrationSnapshot? previousSnapshot = null;
-			string snapshotClassName = $"{contextType.Name.Replace("Context", "")}ModelSnapshot";
-			var snapshotType = assembly.GetExportedTypes()
-				.FirstOrDefault(t => t.Name == snapshotClassName && t.Namespace == $"{contextType.Namespace}.Migrations");
-
-			if (snapshotType != null)
-			{
-				// Instantiate snapshot (constructor populates Entities)
-				previousSnapshot = Activator.CreateInstance(snapshotType) as MigrationSnapshot;
-			}
-
-			var modelDiffer = new ModelDiffer();
-			var operations = modelDiffer.GetDifferences(previousSnapshot, currentSnapshot);
-
-			if (operations.Count == 0)
-			{
-				Console.WriteLine("⚠️ No changes detected in the model.");
-				return;
-			}
-
-
-			var existingMigration = Directory.GetFiles(finalPath, "*.cs")
-				.Where(f => !f.Contains("ModelSnapshot"))
-				.FirstOrDefault(f => Path.GetFileNameWithoutExtension(f).EndsWith($"_{name}", StringComparison.OrdinalIgnoreCase));
-
-			if (existingMigration != null)
-			{
-				Console.WriteLine($"❌ A migration named '{name}' already exists: '{Path.GetFileName(existingMigration)}'");
-				return;
-			}
-
-			string timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
-			string migrationId = $"{timestamp}_{name}";
-			string targetNamespace = $"{contextType.Namespace}.Migrations";
-
-			var generator = new CSharpMigrationGenerator();
-			string migrationCode = generator.GenerateMigration(name, migrationId, targetNamespace, operations);
-
-			string csharpFileName = $"{migrationId}.cs";
-			await File.WriteAllTextAsync(Path.Combine(finalPath, csharpFileName), migrationCode, ct);
-
-			var snapshotGenerator = new ModelSnapshotGenerator();
-			string snapshotCode = snapshotGenerator.GenerateModelSnapshot(
-				currentSnapshot,
-				targetNamespace,
-				contextType.Name.Replace("Context", ""));
-
-			string snapshotFileName = $"{contextType.Name.Replace("Context", "")}ModelSnapshot.cs";
-			string snapshotFilePath = Path.Combine(finalPath, snapshotFileName);
-			await File.WriteAllTextAsync(snapshotFilePath, snapshotCode, ct);
-
-			Console.WriteLine($"✅ Migration created: '{csharpFileName}'");
-			Console.WriteLine($"✅ Model snapshot updated: '{snapshotFileName}'");
-			Console.WriteLine($"   Operations: {operations.Count}");
-
-			foreach (var op in operations)
-			{
-				Console.WriteLine($"   - {op.OperationType}");
-			}
+			var ops = root.GetProperty("operations");
+			Console.WriteLine($"   Operations: {ops.GetArrayLength()}");
+			foreach (var op in ops.EnumerateArray())
+				Console.WriteLine($"   - {op.GetString()}");
 		}
 		catch (Exception ex) { Console.WriteLine($"❌ Error: {ex.Message}"); }
 	}

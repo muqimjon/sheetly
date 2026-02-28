@@ -110,7 +110,6 @@ public class IdGenerationTests
 		ctx.Products.Add(product);
 		await ctx.SaveChangesAsync();
 
-		// Both start at 1 but from separate counters — both being 1 is valid
 		Assert.True(category.Id > 0);
 		Assert.True(product.Id > 0);
 	}

@@ -27,28 +27,23 @@ public class CSharpMigrationGenerator
 	{
 		var sb = new StringBuilder();
 
-		// Using statements
 		sb.AppendLine("using Sheetly.Core.Migrations;");
 		sb.AppendLine("using Sheetly.Core.Migrations.Operations;");
 		sb.AppendLine();
 
-		// Namespace
 		sb.AppendLine($"namespace {targetNamespace};");
 		sb.AppendLine();
 
-		// Migration attribute
 		sb.AppendLine($"[Migration(\"{migrationId}\")]");
 		sb.AppendLine($"public partial class {SanitizeClassName(migrationName)} : Migration");
 		sb.AppendLine("{");
 
-		// Up method
 		sb.AppendLine($"{Indent}public override void Up(MigrationBuilder builder)");
 		sb.AppendLine($"{Indent}{{");
 		GenerateOperations(sb, operations, Indent + Indent);
 		sb.AppendLine($"{Indent}}}");
 		sb.AppendLine();
 
-		// Down method
 		sb.AppendLine($"{Indent}public override void Down(MigrationBuilder builder)");
 		sb.AppendLine($"{Indent}{{");
 		GenerateReverseOperations(sb, operations, Indent + Indent);
@@ -103,12 +98,6 @@ public class CSharpMigrationGenerator
 
 	private void GenerateCreateTable(StringBuilder sb, CreateTableOperation operation, string indent)
 	{
-		// Add ClassName as comment for scaffolding support (Sheetly-specific)
-		if (!string.IsNullOrEmpty(operation.ClassName))
-		{
-			sb.AppendLine($"{indent}// ClassName: {operation.ClassName}");
-		}
-
 		sb.AppendLine($"{indent}builder.CreateTable(\"{operation.Name}\", table => table");
 
 		for (int i = 0; i < operation.Columns.Count; i++)
@@ -127,7 +116,6 @@ public class CSharpMigrationGenerator
 		var typeName = GetTypeName(column.ClrType);
 		var chain = new List<string>();
 
-		// Build fluent chain - order matters for readability
 		if (column.IsPrimaryKey)
 			chain.Add(".IsPrimaryKey()");
 		else if (!column.IsNullable)
@@ -147,7 +135,7 @@ public class CSharpMigrationGenerator
 				chain.Add($".HasPrecision({column.Precision.Value})");
 		}
 
-		if (column.DefaultValue != null)
+		if (column.DefaultValue is not null)
 			chain.Add($".HasDefaultValue({FormatValue(column.DefaultValue)})");
 
 		if (!string.IsNullOrEmpty(column.CheckConstraint))
@@ -210,7 +198,7 @@ public class CSharpMigrationGenerator
 				chain.Add($".HasPrecision({column.Precision.Value})");
 		}
 
-		if (column.DefaultValue != null)
+		if (column.DefaultValue is not null)
 			chain.Add($".HasDefaultValue({FormatValue(column.DefaultValue)})");
 
 		if (!string.IsNullOrEmpty(column.CheckConstraint))
@@ -246,7 +234,7 @@ public class CSharpMigrationGenerator
 	{
 		var chain = new List<string>();
 
-		if (operation.ClrType != null)
+		if (operation.ClrType is not null)
 			chain.Add($".HasType<{GetTypeName(operation.ClrType)}>()");
 
 		if (operation.IsNullable.HasValue)
@@ -255,7 +243,7 @@ public class CSharpMigrationGenerator
 		if (operation.MaxLength.HasValue)
 			chain.Add($".HasMaxLength({operation.MaxLength.Value})");
 
-		if (operation.DefaultValue != null)
+		if (operation.DefaultValue is not null)
 			chain.Add($".HasDefaultValue({FormatValue(operation.DefaultValue)})");
 
 		sb.AppendLine($"{indent}builder.AlterColumn(\"{operation.Table}\", \"{operation.Name}\", c => c{string.Join("", chain)});");
@@ -284,7 +272,6 @@ public class CSharpMigrationGenerator
 
 	private void GenerateReverseOperations(StringBuilder sb, List<MigrationOperation> operations, string indent)
 	{
-		// Generate reverse operations in reverse order
 		var reversed = new List<MigrationOperation>(operations);
 		reversed.Reverse();
 
@@ -326,7 +313,7 @@ public class CSharpMigrationGenerator
 	private static string GetTypeName(Type type)
 	{
 		var underlying = Nullable.GetUnderlyingType(type);
-		if (underlying != null)
+		if (underlying is not null)
 			return GetTypeName(underlying) + "?";
 
 		return type.Name switch
@@ -359,7 +346,6 @@ public class CSharpMigrationGenerator
 
 	private static string SanitizeClassName(string name)
 	{
-		// Remove invalid characters for C# class names
 		var result = new StringBuilder();
 		foreach (var c in name)
 		{
@@ -367,7 +353,6 @@ public class CSharpMigrationGenerator
 				result.Append(c);
 		}
 
-		// Ensure it starts with a letter
 		if (result.Length > 0 && !char.IsLetter(result[0]))
 			result.Insert(0, '_');
 
@@ -376,7 +361,6 @@ public class CSharpMigrationGenerator
 
 	private static string EscapeString(string value)
 	{
-		// Escape quotes and backslashes for C# string literals
 		return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
 	}
 }

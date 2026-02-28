@@ -1,0 +1,49 @@
+name: Release Sheetly.Google
+
+on:
+  push:
+    tags:
+      - 'google-v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#google-v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Releasing Sheetly.Google v$VERSION"
+
+      - name: Build
+        run: dotnet build Sheetly.sln -c Release --no-incremental
+
+      - name: Test
+        run: dotnet test tests/Sheetly.Core.Tests/ -c Release --no-build --verbosity normal
+
+      - name: Pack Sheetly.Google
+        run: dotnet pack src/Sheetly.Google/Sheetly.Google.csproj -c Release --no-build -o ./nupkg
+
+      - name: Push to NuGet
+        run: |
+          dotnet nuget push nupkg/Sheetly.Google.${{ steps.version.outputs.version }}.nupkg \
+            -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ github.ref_name }}
+          name: "Sheetly.Google v${{ steps.version.outputs.version }}"
+          artifacts: nupkg/Sheetly.Google.${{ steps.version.outputs.version }}.nupkg
+          token: ${{ secrets.GITHUB_TOKEN }}
+          skipIfReleaseExists: true

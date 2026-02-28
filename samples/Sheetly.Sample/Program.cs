@@ -1,26 +1,34 @@
 using Sheetly.Sample;
+using Sheetly.Sample.Models;
 
-Console.WriteLine("🚀 SHEETLY v1.0.0 - ENTITY FRAMEWORK FOR GOOGLE SHEETS");
-Console.WriteLine("=" + new string('=', 80));
-Console.WriteLine();
+await using var context = new AppDbContext();
+await context.InitializeAsync();
 
-try
+context.Products.Add(new Product
 {
-	// Run comprehensive test suite
-	await ComprehensiveTests.RunAllTests();
+	Title = "Sample Product",
+	Price = 19.99m,
+	Description = "This is a sample product added to the Excel sheet.",
+	Stock = 100
+});
 
-	Console.WriteLine("\n✨ Testing complete! Now let's verify data in Google Sheets...");
-	Console.WriteLine("\n📊 Please check your Google Sheets and share:");
-	Console.WriteLine("   1. Categories sheet data (all rows)");
-	Console.WriteLine("   2. Products sheet data (all rows)");
-	Console.WriteLine("   3. __SheetlyMigrationsHistory__ sheet");
-	Console.WriteLine("   4. __SheetlySchema__ sheet (should be hidden)");
-	Console.WriteLine();
-}
-catch (Exception ex)
-{
-	Console.WriteLine($"\n❌ Fatal Error: {ex.Message}");
-	Console.WriteLine($"   Type: {ex.GetType().Name}");
-	if (ex.InnerException != null)
-		Console.WriteLine($"   Inner: {ex.InnerException.Message}");
-}
+var firstProduct = await context.Products.FirstOrDefaultAsync();
+firstProduct?.Description = "Updated description for the first product.";
+
+if (firstProduct is not null)
+	context.Products.Remove(firstProduct);
+
+await context.SaveChangesAsync();
+
+
+
+Console.WriteLine("📋 Categories:");
+var categories = await context.Categories.ToListAsync();
+foreach (var c in categories)
+	Console.WriteLine($"  [{c.Id}] {c.Name}");
+
+
+Console.WriteLine("📦 Products:");
+var products = await context.Products.ToListAsync();
+foreach (var p in products)
+	Console.WriteLine($"  [{p.Id}] {p.Title} - ${p.Price}");

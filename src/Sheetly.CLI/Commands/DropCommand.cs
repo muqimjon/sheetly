@@ -1,8 +1,5 @@
-﻿using Sheetly.CLI.Helpers;
-using Sheetly.Core;
-using Sheetly.Google;
+using Sheetly.CLI.Helpers;
 using System.CommandLine;
-using System.Reflection;
 
 namespace Sheetly.CLI.Commands;
 
@@ -10,17 +7,20 @@ public class DropCommand : Command
 {
 	private readonly Option<bool> _forceOption = new("--force", ["-f"]);
 	private readonly Option<string?> _projectOption = new("--project", ["-p"]);
+	private readonly Option<bool> _noBuildOption = new("--no-build", ["-n"]) { Description = "Do not build project" };
 
 	public DropCommand() : base("drop", "Drop the database (clear sheets)")
 	{
 		this.Add(_forceOption);
 		this.Add(_projectOption);
+		this.Add(_noBuildOption);
 		this.SetAction(async (parseResult, ct) => await ExecuteAsync(
 			parseResult.GetValue(_forceOption),
+			parseResult.GetValue(_noBuildOption),
 			parseResult.GetValue(_projectOption)));
 	}
 
-	private async Task ExecuteAsync(bool force, string? projectPath)
+	private async Task ExecuteAsync(bool force, bool noBuild, string? projectPath)
 	{
 		if (!force)
 		{
@@ -28,27 +28,21 @@ public class DropCommand : Command
 			if (Console.ReadLine()?.ToLower() != "y") return;
 		}
 
-		string dllPath = CliHelper.FindProjectDll(true, projectPath);
+		string dllPath = CliHelper.FindProjectDll(noBuild, projectPath);
 		if (string.IsNullOrEmpty(dllPath)) return;
 
 		try
 		{
-			var assembly = Assembly.LoadFrom(Path.GetFullPath(dllPath));
-			var contextType = assembly.GetExportedTypes().FirstOrDefault(t => CliHelper.IsSubclassOfSheetsContext(t))
-				?? throw new Exception("SheetsContext not found.");
+			var (assembly, loadContext) = CliHelper.LoadAssemblyIsolated(dllPath);
+			var coreAsm = CliHelper.GetCoreAssembly(assembly, loadContext);
+			var contextType = CliHelper.FindContextType(assembly);
 
-			string? connStr = CliHelper.GetConnectionString(CliHelper.FindProjectRootFromDll(dllPath))
-				?? CliHelper.GetConnectionStringFromContext(contextType);
+			string? connStr = CliHelper.GetConnectionString(CliHelper.FindProjectRootFromDll(dllPath));
 
-			var method = typeof(GoogleSheetsFactory).GetMethods()
-				.FirstOrDefault(m => m.Name == "CreateContextAsync" && m.GetParameters().Length == 1)
-				?.MakeGenericMethod(contextType);
+			var json = CliHelper.InvokeDesignTime(coreAsm, "DropDatabaseAsync", contextType, connStr);
+			var doc = CliHelper.ParseResult(json);
+			if (doc is null) return;
 
-			var task = (Task)method!.Invoke(null, [connStr])!;
-			await task;
-
-			var context = (SheetsContext)((dynamic)task).Result;
-			await context.Database.DropDatabaseAsync();
 			Console.WriteLine("✅ Database dropped successfully.");
 		}
 		catch (Exception ex) { Console.WriteLine($"❌ Error: {ex.Message}"); }

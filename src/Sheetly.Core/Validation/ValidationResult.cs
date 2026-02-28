@@ -87,7 +87,7 @@ public class ValidationError
 	}
 
 	public override string ToString() =>
-		EntityType != null
+		EntityType is not null
 			? $"{EntityType}.{PropertyName}: {Message}"
 			: $"{PropertyName}: {Message}";
 }

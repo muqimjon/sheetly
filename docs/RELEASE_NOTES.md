@@ -1,104 +1,66 @@
-# 🎉 Sheetly v1.0.1 — Release Notes
+# 🎉 Sheetly v1.1.0 — Release Notes
 
-## Entity Framework Core for Google Sheets
+## Entity Framework Core for Spreadsheets
 
-**Release Date:** February 23, 2026
-
----
-
-## 🐛 What's Fixed in v1.0.1
-
-- **CLI banner** — EF Core-style terminal output with teal rocket art
-- **`OnConfiguring` detection** — `dotnet sheetly database update` now reads connection settings directly from `OnConfiguring()`, no `appsettings.json` required
-- **Build-first behavior** — All CLI commands now build the project before executing (like `dotnet ef`)
-- **Version output** — Removed git commit hash from `--version` output
-- **Brand logo** — Added official icon to all NuGet packages
-- **CI/CD** — GitHub Actions workflows for automatic NuGet publishing
+**Release Date:** March 2026
 
 ---
 
-## ✨ What's New
+## ✨ What's New in v1.1.0
 
-### Core Features
+### Excel Provider
 
-- **SheetsContext & SheetsSet\<T\>** — EF Core-style context and entity sets
-- **CRUD** — `Add()`, `Update()`, `Remove()`, `SaveChangesAsync()`
-- **Queries** — `FindAsync()`, `FirstOrDefaultAsync()`, `Where()`, `CountAsync()`, `AnyAsync()`
-- **Include()** — Eager loading for navigation properties
-- **AsNoTracking()** — Read-only queries without change tracking
+- **`Sheetly.Excel`** — New package for local `.xlsx` files via [ClosedXML](https://github.com/ClosedXML/ClosedXML)
+- Switch between Google Sheets and Excel with a single line:
 
-### Code-First Migrations
+```csharp
+// Google Sheets
+options.UseGoogleSheets("spreadsheetId", "credentials.json");
 
-- C# migration files with `Up()` / `Down()` methods
-- `ModelSnapshot.cs` — C# snapshot (no JSON)
-- Automatic change detection via `ModelDiffer`
-- Startup sync check — detects pending migrations and model changes
-
-### Constraint Validation
-
-Validates locally before any Google Sheets API calls:
-
-- Primary Keys (auto-detected, auto-increment)
-- Foreign Keys (auto-detected from `{Entity}Id` convention)
-- Required / Nullable
-- MaxLength / MinLength
-- Range (MinValue / MaxValue)
-- Unique constraints
-- Check constraints
-- Data type validation
-
-### CLI Tool
-
-```bash
-dotnet tool install -g dotnet-sheetly
-
-dotnet sheetly migrations add InitialCreate
-dotnet sheetly migrations list
-dotnet sheetly migrations remove
-dotnet sheetly database update
-dotnet sheetly database drop
-dotnet sheetly scaffold
+// Local Excel file
+options.UseExcel("path/to/file.xlsx");
 ```
 
-### Google Sheets Provider
+- All CLI commands (`migrations add`, `database update`, `database drop`, `scaffold`) work identically for both providers
 
-- Automatic retry with exponential backoff on rate limits (429 / 503)
-- Hidden `__SheetlySchema__` and `__SheetlyMigrationsHistory__` sheets
+### Schema-Based Auto-Increment ID
+
+- **Concurrent-safe ID generation** — ID counter is stored in `__SheetlySchema__` sheet/worksheet
+- On `SaveChangesAsync()`, the counter is fetched, incremented, and written back atomically before data is inserted
+- Prevents duplicate IDs when multiple clients insert simultaneously
+- If the counter is `0` (first run or legacy data), the provider scans the existing data sheet for the current max ID and continues from there
+- **Non-numeric primary keys** (string, Guid) are user-assigned — no auto-increment, required validation is enforced automatically
 
 ---
 
 ## 📦 Packages
 
-| Package | Description |
-|---|---|
-| `Sheetly.Core` | Core abstractions, migrations, validation |
-| `Sheetly.Google` | Google Sheets API provider |
-| `dotnet-sheetly` | CLI tool (global tool) |
-| `Sheetly.DependencyInjection` | ASP.NET Core DI integration |
+| Package | Version | Description |
+|---|---|---|
+| `Sheetly.Core` | 1.1.0 | Core abstractions, migrations, validation |
+| `Sheetly.Google` | 1.1.0 | Google Sheets provider |
+| `Sheetly.Excel` | 1.1.0 | Local Excel (.xlsx) provider |
+| `dotnet-sheetly` | 1.1.0 | CLI tool (global tool) |
+| `Sheetly.DependencyInjection` | 1.1.0 | ASP.NET Core DI integration |
+
+---
+
+## 🐛 What's Fixed in v1.1.0
+
+- **ID always = 1** — `GetAndIncrementIdAsync` was comparing `"True"` with `"TRUE"` (Google Sheets USERENTERED boolean); fixed with `bool.TryParse`
+- **Schema row count assumption** — Replaced `row.Count > 28` check with direct `GetValueAsync` cell read for Google provider to handle trailing empty cells correctly
 
 ---
 
 ## ⚠️ Known Limitations
 
-- **Google Sheets API rate limits** — 60 reads/min per user (mitigated by auto-retry)
+- **Google Sheets API rate limits** — 60 reads/min per user; use multiple `credentials.json` files for higher throughput
 - **Column drop** — Can't directly remove columns in Sheets; tracked in schema only
-- **Transactions** — Not supported (Sheets API limitation)
-- **Queries** — In-memory filtering after data load; no server-side query execution
+- **Transactions** — Not supported (Sheets/Excel limitation)
+- **Queries** — In-memory filtering after full data load; no server-side query execution
 
 ---
 
 ## 🔮 Roadmap
 
-### v1.1.0
-- Excel provider (`Sheetly.Excel`)
-- Advanced LINQ support (`OrderBy`, `Select`, `Skip`, `Take`)
-- Query result caching
-
-### v1.2.0
-- Scaffold improvements
-- Batch operation optimization
-- Read-only view support
-
----
-
-**Created by** [Muqimjon Mamadaliyev](https://github.com/muqimjon) · MIT License
+- **Navigation property auto-resolution** — `product.Category = new Category { Name = "Books" }` automatically resolves and assigns `CategoryId`

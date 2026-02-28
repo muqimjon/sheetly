@@ -11,7 +11,7 @@ public class ForeignKeyValidator : IValidationRule
 	{
 		var result = new ValidationResult();
 
-		if (context.Schema == null) return result;
+		if (context.Schema is null) return result;
 
 		var entityType = entity.GetType();
 
@@ -20,12 +20,11 @@ public class ForeignKeyValidator : IValidationRule
 			if (!column.IsForeignKey || string.IsNullOrEmpty(column.ForeignKeyTable)) continue;
 
 			var property = entityType.GetProperty(column.PropertyName);
-			if (property == null) continue;
+			if (property is null) continue;
 
 			var value = property.GetValue(entity);
 
-			// Null FK is allowed if column is nullable
-			if (value == null)
+			if (value is null)
 			{
 				if (!column.IsNullable)
 				{
@@ -38,14 +37,12 @@ public class ForeignKeyValidator : IValidationRule
 				continue;
 			}
 
-			// Skip zero/default values for value types (will be set on save)
 			if (IsDefaultValue(value, property.PropertyType)) continue;
 
-			// Check against tracked entities using schema-based PK resolution
 			if (context.AllSchemas.TryGetValue(column.ForeignKeyTable, out var referencedSchema))
 			{
 				var referencedPkColumn = referencedSchema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
-				if (referencedPkColumn != null)
+				if (referencedPkColumn is not null)
 				{
 					var found = false;
 					foreach (var tracked in context.TrackedEntities)
@@ -53,7 +50,7 @@ public class ForeignKeyValidator : IValidationRule
 						if (tracked.GetType().Name != referencedSchema.ClassName) continue;
 
 						var pkProp = tracked.GetType().GetProperty(referencedPkColumn.PropertyName);
-						if (pkProp == null) continue;
+						if (pkProp is null) continue;
 
 						var pkValue = pkProp.GetValue(tracked);
 						if (Equals(value, pkValue))
@@ -63,8 +60,6 @@ public class ForeignKeyValidator : IValidationRule
 						}
 					}
 
-					// Only error if tracked entities of this type exist but none match
-					// Remote check happens later in SaveChangesAsync
 					if (!found && context.TrackedEntities.Any(e => e.GetType().Name == referencedSchema.ClassName))
 					{
 						result.AddError(new ValidationError(column.PropertyName,

@@ -1,4 +1,4 @@
-﻿using Sheetly.Core.Abstractions;
+using Sheetly.Core.Abstractions;
 using Sheetly.Core.Migrations.Operations;
 
 namespace Sheetly.Google;
@@ -13,36 +13,36 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 	/// </summary>
 	private static readonly string[] SchemaTableHeaders =
 	[
-		"ClassName",           // 0 - Entity class name
-        "TableName",           // 1 - Sheet/Table name
-        "PropertyName",        // 2 - Property/Column name
-        "ColumnName",          // 3 - Actual column name in sheet
-        "DataType",            // 4 - CLR type (Int32, String, etc.)
-        "IsNullable",          // 5 - Is nullable (TRUE/FALSE)
-        "IsRequired",          // 6 - Is required (TRUE/FALSE)
-        "IsPrimaryKey",        // 7 - Is primary key (TRUE/FALSE)
-        "IsForeignKey",        // 8 - Is foreign key (TRUE/FALSE)
-        "ForeignKeyTable",     // 9 - Related table name
-        "ForeignKeyColumn",    // 10 - Related column name
-        "OnDelete",            // 11 - FK delete action
-        "OnUpdate",            // 12 - FK update action
-        "IsUnique",            // 13 - Is unique constraint
-        "IndexName",           // 14 - Index name if part of index
-        "MaxLength",           // 15 - Max string length
-        "MinLength",           // 16 - Min string length
-        "Precision",           // 17 - Decimal precision
-        "Scale",               // 18 - Decimal scale
-        "MinValue",            // 19 - Minimum numeric value
-        "MaxValue",            // 20 - Maximum numeric value
-        "DefaultValue",        // 21 - Default value
-        "DefaultValueSql",     // 22 - Default value SQL expression
-        "CheckConstraint",     // 23 - Check constraint expression
-        "IsComputed",          // 24 - Is computed column
-        "ComputedSql",         // 25 - Computed column SQL
-        "IsConcurrencyToken",  // 26 - Is concurrency token
-        "IsAutoIncrement",     // 27 - Is auto-increment (for PK)
-        "CurrentIdValue",      // 28 - Current ID value (for auto-increment)
-        "Comment"              // 29 - Column comment/description
+		"ClassName",
+        "TableName",
+        "PropertyName",
+        "ColumnName",
+        "DataType",
+        "IsNullable",
+        "IsRequired",
+        "IsPrimaryKey",
+        "IsForeignKey",
+        "ForeignKeyTable",
+        "ForeignKeyColumn",
+        "OnDelete",
+        "OnUpdate",
+        "IsUnique",
+        "IndexName",
+        "MaxLength",
+        "MinLength",
+        "Precision",
+        "Scale",
+        "MinValue",
+        "MaxValue",
+        "DefaultValue",
+        "DefaultValueSql",
+        "CheckConstraint",
+        "IsComputed",
+        "ComputedSql",
+        "IsConcurrencyToken",
+        "IsAutoIncrement",
+        "CurrentIdValue",
+        "Comment"
     ];
 
 	public async Task<List<string>> GetAppliedMigrationsAsync()
@@ -50,8 +50,6 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 		if (!await provider.SheetExistsAsync(HistoryTable)) return [];
 
 		var rows = await provider.GetAllRowsAsync(HistoryTable);
-		// Assuming first column is MigrationId
-		// Row 0 is header
 		return rows.Skip(1)
 				   .Where(r => r.Count > 0)
 				   .Select(r => r[0]?.ToString() ?? "")
@@ -125,7 +123,6 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 		if (await provider.SheetExistsAsync(op.Name))
 			await provider.DeleteSheetAsync(op.Name);
 
-		// Rewrite schema table without this table's rows
 		var rows = await provider.GetAllRowsAsync(SchemaTable);
 		var newRows = new List<IList<object>> { rows[0] };
 
@@ -186,7 +183,7 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 			col.ComputedColumnSql ?? "",
 			col.IsConcurrencyToken.ToString(),
 			col.IsAutoIncrement.ToString(),
-			col.IsPrimaryKey ? "0" : "",     // CurrentIdValue (auto-increment PK only)
+			col.IsPrimaryKey ? "0" : "",
 			col.Comment ?? ""
 		]);
 	}
@@ -194,7 +191,10 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 	private async Task EnsureSystemTablesExistAsync()
 	{
 		if (!await provider.SheetExistsAsync(HistoryTable))
+		{
 			await provider.CreateSheetAsync(HistoryTable, ["MigrationId", "AppliedAt", "ProductVersion"]);
+			await provider.HideSheetAsync(HistoryTable);
+		}
 
 		if (!await provider.SheetExistsAsync(SchemaTable))
 		{
@@ -205,15 +205,13 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 
 	private async Task RecordMigrationAsync(string migrationId)
 	{
+		var version = typeof(ISheetsProvider).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
 		await provider.AppendRowAsync(HistoryTable,
-			[migrationId, DateTime.UtcNow.ToString("O"), "1.0.0"]);
+			[migrationId, DateTime.UtcNow.ToString("O"), version]);
 	}
 
 	private async Task DropColumnAsync(DropColumnOperation op)
 	{
-		// Note: Google Sheets doesn't support dropping columns directly
-		// We would need to recreate the sheet without that column
-		// For now, log a warning
 		Console.WriteLine($"Warning: DropColumn '{op.Table}.{op.Name}' requires manual intervention in Google Sheets.");
 		await RemoveFromSchemaTableAsync(op.Table, op.Name);
 	}
@@ -227,19 +225,18 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 				rows[i][1]?.ToString() == op.Table &&
 				rows[i][2]?.ToString() == op.Name)
 			{
-				// Pad row to full schema width to avoid index-out-of-range on sparse rows
 				var updatedRow = rows[i].ToList();
 				while (updatedRow.Count < SchemaTableHeaders.Length)
 					updatedRow.Add("");
 
-				if (op.ClrType != null) updatedRow[4] = op.ClrType.Name;
+				if (op.ClrType is not null) updatedRow[4] = op.ClrType.Name;
 				if (op.IsNullable.HasValue)
 				{
 					updatedRow[5] = op.IsNullable.Value.ToString();
 					updatedRow[6] = (!op.IsNullable.Value).ToString();
 				}
 				if (op.MaxLength.HasValue) updatedRow[15] = op.MaxLength.Value.ToString();
-				if (op.DefaultValue != null) updatedRow[21] = op.DefaultValue.ToString() ?? "";
+				if (op.DefaultValue is not null) updatedRow[21] = op.DefaultValue.ToString() ?? "";
 
 				await provider.UpdateRowAsync(SchemaTable, i + 1, updatedRow);
 				break;
@@ -249,7 +246,6 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 
 	private async Task CreateIndexAsync(CreateIndexOperation op)
 	{
-		// Indexes are metadata-only in Sheets — recorded in schema for scaffold/documentation
 		var rows = await provider.GetAllRowsAsync(SchemaTable);
 		for (int i = 1; i < rows.Count; i++)
 		{

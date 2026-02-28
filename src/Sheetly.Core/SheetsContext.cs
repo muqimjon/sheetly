@@ -10,7 +10,7 @@ using System.Reflection;
 
 namespace Sheetly.Core;
 
-public abstract class SheetsContext : IDisposable
+public abstract class SheetsContext : IDisposable, IAsyncDisposable
 {
 	public ISheetsProvider Provider { get; private set; } = default!;
 	public DatabaseFacade Database { get; private set; } = default!;
@@ -19,18 +19,29 @@ public abstract class SheetsContext : IDisposable
 	private MigrationSnapshot? _currentSnapshot;
 	private ConstraintValidator? _validator;
 
+	private readonly SheetsOptions? _constructorOptions;
+
+	protected SheetsContext() { }
+
+	protected SheetsContext(SheetsOptions options)
+	{
+		_constructorOptions = options;
+	}
+
 	protected virtual void OnModelCreating(ModelBuilder modelBuilder) { }
 
 	protected virtual void OnConfiguring(SheetsOptions options) { }
 
 	public virtual async Task InitializeAsync(ISheetsProvider? provider = null, IMigrationService? migrationService = null)
 	{
-		if (provider == null)
+		if (provider is null)
 		{
-			var options = new SheetsOptions();
-			OnConfiguring(options);
+			var options = _constructorOptions ?? new SheetsOptions();
+			if (_constructorOptions is null)
+				OnConfiguring(options);
+
 			provider = options.Provider ?? throw new InvalidOperationException(
-				"ISheetsProvider not configured. Call UseGoogleSheets in OnConfiguring.");
+				"ISheetsProvider not configured. Call UseGoogleSheets in OnConfiguring or pass SheetsContextOptions via constructor.");
 			migrationService ??= options.MigrationService;
 		}
 
@@ -84,15 +95,15 @@ public abstract class SheetsContext : IDisposable
 	/// </summary>
 	private void CheckModelSnapshotSync()
 	{
-		if (_currentSnapshot == null) return;
+		if (_currentSnapshot is null) return;
 
 		var snapshotType = GetType().Assembly.GetTypes()
 			.FirstOrDefault(t => t.Name.EndsWith("ModelSnapshot") && t.IsSubclassOf(typeof(MigrationSnapshot)));
 
-		if (snapshotType == null) return; // No snapshot class yet — new project
+		if (snapshotType is null) return;
 
 		var storedSnapshot = (MigrationSnapshot?)Activator.CreateInstance(snapshotType);
-		if (storedSnapshot == null) return;
+		if (storedSnapshot is null) return;
 
 		if (_currentSnapshot.ModelHash != storedSnapshot.ModelHash)
 		{
@@ -111,7 +122,7 @@ public abstract class SheetsContext : IDisposable
 		foreach (var migrationType in migrationTypes)
 		{
 			var migrationAttr = migrationType.GetCustomAttribute<Migrations.MigrationAttribute>();
-			if (migrationAttr != null)
+			if (migrationAttr is not null)
 			{
 				migrations.Add(migrationAttr.Id);
 			}
@@ -125,10 +136,7 @@ public abstract class SheetsContext : IDisposable
 		const string HistoryTable = "__SheetlyMigrationsHistory__";
 
 		if (!await Provider.SheetExistsAsync(HistoryTable))
-		{
-			// History table doesn't exist - database is new
 			return new List<string>();
-		}
 
 		var rows = await Provider.GetAllRowsAsync(HistoryTable);
 
@@ -148,7 +156,6 @@ public abstract class SheetsContext : IDisposable
 		{
 			var entityType = prop.PropertyType.GetGenericArguments()[0];
 
-			// Try to find schema by entity type name matching any table
 			EntitySchema? schema = null;
 			foreach (var kvp in snapshot.Entities)
 			{
@@ -159,7 +166,7 @@ public abstract class SheetsContext : IDisposable
 				}
 			}
 
-			if (schema != null)
+			if (schema is not null)
 			{
 				var setInstance = Activator.CreateInstance(
 					typeof(SheetsSet<>).MakeGenericType(entityType),
@@ -167,7 +174,7 @@ public abstract class SheetsContext : IDisposable
 					schema,
 					snapshot.Entities);
 
-				if (setInstance != null)
+				if (setInstance is not null)
 				{
 					prop.SetValue(this, setInstance);
 					sets[entityType] = setInstance;
@@ -176,8 +183,19 @@ public abstract class SheetsContext : IDisposable
 		}
 	}
 
-	public async Task<int> SaveChangesAsync()
+	public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
 	{
+		if (Provider is null)
+			throw new InvalidOperationException(
+				"Context not initialized. Call InitializeAsync() first.");
+
+		foreach (var set in sets.Values)
+		{
+			set.GetType()
+				.GetMethod("DetectChanges", BindingFlags.NonPublic | BindingFlags.Instance)
+				?.Invoke(set, null);
+		}
+
 		var allPendingEntities = new List<object>();
 		var allDeletedEntities = new List<object>();
 
@@ -195,8 +213,7 @@ public abstract class SheetsContext : IDisposable
 				allDeletedEntities.AddRange(deleted);
 		}
 
-		// Validate locally BEFORE any API calls (constraint checks, FK format, etc.)
-		if (_validator != null && allPendingEntities.Count > 0)
+		if (_validator is not null && allPendingEntities.Count > 0)
 		{
 			var result = new ValidationResult();
 
@@ -209,7 +226,7 @@ public abstract class SheetsContext : IDisposable
 				if (!(_currentSnapshot?.Entities.TryGetValue(tableName, out schema) == true))
 					schema = _currentSnapshot?.Entities.Values.FirstOrDefault(e => e.ClassName == entityType.Name);
 
-				if (schema != null)
+				if (schema is not null)
 				{
 					var context = new ValidationContext
 					{
@@ -227,12 +244,13 @@ public abstract class SheetsContext : IDisposable
 				throw new ValidationException(result);
 		}
 
-		// Remote FK validation — one API call per referenced table
 		if (allPendingEntities.Count > 0)
 			await ValidateForeignKeyReferencesAsync(allPendingEntities);
 
 		if (allDeletedEntities.Count > 0)
 			await ValidateForeignKeyConstraintsOnDelete(allDeletedEntities);
+
+		cancellationToken.ThrowIfCancellationRequested();
 
 		int total = 0;
 		foreach (var set in sets.Values)
@@ -240,7 +258,7 @@ public abstract class SheetsContext : IDisposable
 			var method = set.GetType().GetMethod("SaveChangesInternalAsync",
 				BindingFlags.NonPublic | BindingFlags.Instance);
 
-			if (method != null)
+			if (method is not null)
 			{
 				var result = await (Task<int>)method.Invoke(set, null)!;
 				total += result;
@@ -254,7 +272,7 @@ public abstract class SheetsContext : IDisposable
 	/// </summary>
 	private async Task ValidateForeignKeyReferencesAsync(List<object> pendingEntities)
 	{
-		if (_currentSnapshot?.Entities == null || Provider == null) return;
+		if (_currentSnapshot?.Entities is null || Provider is null) return;
 
 		var fkChecks = new Dictionary<string, HashSet<string>>();
 
@@ -263,15 +281,15 @@ public abstract class SheetsContext : IDisposable
 			var entityType = entity.GetType();
 			var schema = _currentSnapshot.Entities.Values
 				.FirstOrDefault(e => e.ClassName == entityType.Name);
-			if (schema == null) continue;
+			if (schema is null) continue;
 
 			foreach (var column in schema.Columns.Where(c => c.IsForeignKey && !string.IsNullOrEmpty(c.ForeignKeyTable)))
 			{
 				var prop = entityType.GetProperty(column.PropertyName);
-				if (prop == null) continue;
+				if (prop is null) continue;
 
 				var value = prop.GetValue(entity);
-				if (value == null || IsDefaultFkValue(value, prop.PropertyType)) continue;
+				if (value is null || IsDefaultFkValue(value, prop.PropertyType)) continue;
 
 				var fkTableName = column.ForeignKeyTable!;
 				if (!fkChecks.ContainsKey(fkTableName))
@@ -294,10 +312,10 @@ public abstract class SheetsContext : IDisposable
 					$"Cannot reference IDs: {string.Join(", ", fkValues)}");
 
 			var referencedSchema = _currentSnapshot.Entities.GetValueOrDefault(referencedTable);
-			if (referencedSchema == null) continue;
+			if (referencedSchema is null) continue;
 
 			var pkColumn = referencedSchema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
-			if (pkColumn == null) continue;
+			if (pkColumn is null) continue;
 
 			var headers = rows[0].Select(h => h?.ToString() ?? "").ToList();
 			int pkColumnIndex = headers.IndexOf(pkColumn.PropertyName);
@@ -337,21 +355,21 @@ public abstract class SheetsContext : IDisposable
 	/// </summary>
 	private async Task ValidateForeignKeyConstraintsOnDelete(List<object> deletedEntities)
 	{
-		if (_currentSnapshot?.Entities == null || Provider == null) return;
+		if (_currentSnapshot?.Entities is null || Provider is null) return;
 
 		foreach (var deletedEntity in deletedEntities)
 		{
 			var entityType = deletedEntity.GetType();
 			var entitySchema = _currentSnapshot.Entities.Values
 				.FirstOrDefault(e => e.ClassName == entityType.Name);
-			if (entitySchema == null) continue;
+			if (entitySchema is null) continue;
 
 			var pkColumn = entitySchema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
-			if (pkColumn == null) continue;
+			if (pkColumn is null) continue;
 
 			var pkProp = entityType.GetProperty(pkColumn.PropertyName);
 			var pkValue = pkProp?.GetValue(deletedEntity);
-			if (pkValue == null) continue;
+			if (pkValue is null) continue;
 
 			foreach (var otherEntity in _currentSnapshot.Entities.Values)
 			{
@@ -411,7 +429,7 @@ public abstract class SheetsContext : IDisposable
 							break;
 
 						case ForeignKeyAction.SetDefault:
-							if (fkColumn.DefaultValue != null)
+							if (fkColumn.DefaultValue is not null)
 								foreach (var rowIndex in referencingRows)
 									await Provider.UpdateValueAsync(otherEntity.TableName, GetCellAddress(fkColumnIndex, rowIndex), fkColumn.DefaultValue);
 							break;
@@ -443,6 +461,15 @@ public abstract class SheetsContext : IDisposable
 	{
 		if (disposing)
 			Provider?.Dispose();
+	}
+
+	public async ValueTask DisposeAsync()
+	{
+		if (Provider is IAsyncDisposable asyncDisposable)
+			await asyncDisposable.DisposeAsync();
+		else
+			Provider?.Dispose();
+		GC.SuppressFinalize(this);
 	}
 
 	~SheetsContext()

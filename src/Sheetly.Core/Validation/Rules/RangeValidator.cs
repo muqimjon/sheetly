@@ -9,20 +9,18 @@ public class RangeValidator : IValidationRule
 	{
 		var result = new ValidationResult();
 
-		if (context.Schema == null || context.EntityType == null) return result;
+		if (context.Schema is null || context.EntityType is null) return result;
 
 		foreach (var column in context.Schema.Columns)
 		{
-			// Only validate if range constraints are defined
 			if (!column.MinValue.HasValue && !column.MaxValue.HasValue) continue;
 
 			var property = context.EntityType.GetProperty(column.PropertyName);
-			if (property == null) continue;
+			if (property is null) continue;
 
 			var value = property.GetValue(entity);
-			if (value == null) continue; // Null values are handled by NullabilityValidator
+			if (value is null) continue;
 
-			// Convert to decimal for comparison
 			if (!TryConvertToDecimal(value, out decimal numericValue))
 				continue;
 

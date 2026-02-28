@@ -9,21 +9,21 @@ public class NullabilityValidator : IValidationRule
 	{
 		var result = new ValidationResult();
 
-		if (context.Schema == null) return result;
+		if (context.Schema is null) return result;
 
 		var entityType = entity.GetType();
 
 		foreach (var column in context.Schema.Columns)
 		{
 			if (column.IsNullable) continue;
-			if (column.IsPrimaryKey) continue; // PK is handled separately
+			if (column.IsPrimaryKey) continue;
 
 			var property = entityType.GetProperty(column.PropertyName);
-			if (property == null) continue;
+			if (property is null) continue;
 
 			var value = property.GetValue(entity);
 
-			if (value == null)
+			if (value is null)
 			{
 				result.AddError(new ValidationError(column.PropertyName,
 					$"'{column.PropertyName}' is required and cannot be null.")

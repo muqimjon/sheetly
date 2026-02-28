@@ -31,7 +31,7 @@ public class MigrationBuilder
 			IsNullable = IsNullableType(typeof(T))
 		};
 
-		if (configure != null)
+		if (configure is not null)
 		{
 			var columnBuilder = new ColumnBuilder(operation);
 			configure(columnBuilder);
@@ -65,7 +65,7 @@ public class MigrationBuilder
 			Columns = new List<string>(columns)
 		};
 
-		if (configure != null)
+		if (configure is not null)
 		{
 			var builder = new IndexBuilder(operation);
 			configure(builder);
@@ -97,7 +97,7 @@ public class MigrationBuilder
 
 	private static bool IsNullableType(Type type)
 	{
-		return !type.IsValueType || Nullable.GetUnderlyingType(type) != null;
+		return !type.IsValueType || Nullable.GetUnderlyingType(type) is not null;
 	}
 }
 
@@ -122,7 +122,7 @@ public class TableBuilder
 			IsNullable = IsNullableType(typeof(T))
 		};
 
-		if (configure != null)
+		if (configure is not null)
 		{
 			var columnBuilder = new ColumnBuilder(operation);
 			configure(columnBuilder);
@@ -134,7 +134,7 @@ public class TableBuilder
 
 	private static bool IsNullableType(Type type)
 	{
-		return !type.IsValueType || Nullable.GetUnderlyingType(type) != null;
+		return !type.IsValueType || Nullable.GetUnderlyingType(type) is not null;
 	}
 }
 

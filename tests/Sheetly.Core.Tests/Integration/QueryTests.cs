@@ -8,8 +8,6 @@ namespace Sheetly.Core.Tests.Integration;
 /// </summary>
 public class QueryTests
 {
-	// ── FindAsync ─────────────────────────────────────────────────────────────
-
 	[Fact]
 	public async Task FindAsync_ExistingId_ReturnsEntity()
 	{
@@ -35,8 +33,6 @@ public class QueryTests
 
 		Assert.Null(found);
 	}
-
-	// ── FirstOrDefaultAsync ───────────────────────────────────────────────────
 
 	[Fact]
 	public async Task FirstOrDefaultAsync_NoPredicate_ReturnsFirstEntity()
@@ -90,8 +86,6 @@ public class QueryTests
 		Assert.Null(result);
 	}
 
-	// ── Where ─────────────────────────────────────────────────────────────────
-
 	[Fact]
 	public async Task Where_FiltersByPredicate()
 	{
@@ -115,7 +109,7 @@ public class QueryTests
 		// Get products with Price > 20
 		var expensive = await ctx.Products.Where(p => p.Price > 20m);
 
-		Assert.Equal(3, expensive.Count); // 30, 40, 50
+		Assert.Equal(3, expensive.Count);
 		Assert.All(expensive, p => Assert.True(p.Price > 20m));
 	}
 
@@ -131,8 +125,6 @@ public class QueryTests
 
 		Assert.Empty(result);
 	}
-
-	// ── CountAsync ────────────────────────────────────────────────────────────
 
 	[Fact]
 	public async Task CountAsync_NoPredicate_ReturnsTotal()
@@ -172,8 +164,6 @@ public class QueryTests
 
 		Assert.Equal(0, await ctx.Categories.CountAsync());
 	}
-
-	// ── AnyAsync ──────────────────────────────────────────────────────────────
 
 	[Fact]
 	public async Task AnyAsync_WithData_ReturnsTrue()
@@ -216,8 +206,6 @@ public class QueryTests
 		Assert.False(await ctx.Categories.AnyAsync(c => c.Name == "Missing"));
 	}
 
-	// ── AsNoTracking ──────────────────────────────────────────────────────────
-
 	[Fact]
 	public async Task AsNoTracking_DoesNotCauseDoubleSaveOnSubsequentSave()
 	{
@@ -233,8 +221,6 @@ public class QueryTests
 		int changes = await ctx.SaveChangesAsync();
 		Assert.Equal(0, changes);
 	}
-
-	// ── Include (eager loading) ───────────────────────────────────────────────
 
 	[Fact]
 	public async Task Include_LoadsRelatedCollection()
@@ -268,7 +254,6 @@ public class QueryTests
 
 		var categories = await ctx.Categories.Include("Products").ToListAsync();
 
-		// Products list should be null or empty (no products inserted)
 		var cat = categories.Single();
 		var productCount = cat.Products?.Count ?? 0;
 		Assert.Equal(0, productCount);

@@ -2,7 +2,9 @@ using Sheetly.Core.Abstractions;
 using Sheetly.Core.Mapping;
 using Sheetly.Core.Migration;
 using System.Collections;
+using System.Linq.Expressions;
 using System.Reflection;
+using System.Text.Json;
 
 namespace Sheetly.Core;
 
@@ -10,10 +12,9 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 {
 	private readonly Dictionary<T, EntityState> _trackedEntities = [];
 	private readonly Dictionary<T, int> _entityRowIndexes = [];
+	private readonly Dictionary<T, string> _snapshots = [];
 	private readonly List<string> _includes = [];
 	private bool _asNoTracking = false;
-
-	private const string SchemaTable = "__SheetlySchema__";
 
 	public SheetsSet<T> AsNoTracking()
 	{
@@ -24,6 +25,18 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 	public SheetsSet<T> Include(string propertyName)
 	{
 		_includes.Add(propertyName);
+		return this;
+	}
+
+	/// <summary>
+	/// Strongly-typed navigation include, mirroring EF Core's expression-based overload:
+	/// <code>context.Orders.Include(o => o.Customer)</code>
+	/// The property name is extracted at compile time — no magic strings needed.
+	/// </summary>
+	public SheetsSet<T> Include<TProperty>(Expression<Func<T, TProperty>> navigationExpression)
+	{
+		if (navigationExpression.Body is MemberExpression member)
+			_includes.Add(member.Member.Name);
 		return this;
 	}
 
@@ -38,6 +51,24 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 
 	internal IEnumerable<object> GetDeletedEntities() =>
 		_trackedEntities.Where(x => x.Value == EntityState.Deleted).Select(x => (object)x.Key);
+
+	/// <summary>
+	/// Compares each Unchanged tracked entity against its original snapshot.
+	/// Automatically promotes entities whose properties have changed to Modified state,
+	/// mirroring EF Core's ChangeTracker.DetectChanges() behaviour.
+	/// </summary>
+	internal void DetectChanges()
+	{
+		foreach (var entry in _trackedEntities.ToList())
+		{
+			if (entry.Value != EntityState.Unchanged) continue;
+			if (!_snapshots.TryGetValue(entry.Key, out var original)) continue;
+
+			var current = JsonSerializer.Serialize(entry.Key);
+			if (current != original)
+				_trackedEntities[entry.Key] = EntityState.Modified;
+		}
+	}
 
 	public async Task<List<T>> ToListAsync()
 	{
@@ -55,7 +86,8 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 			if (!_asNoTracking && !_trackedEntities.ContainsKey(entity))
 			{
 				_trackedEntities[entity] = EntityState.Unchanged;
-				_entityRowIndexes[entity] = i + 1; // A1 notation: row 1=header, row 2=first data
+				_entityRowIndexes[entity] = i + 1;
+				_snapshots[entity] = JsonSerializer.Serialize(entity);
 			}
 		}
 
@@ -76,36 +108,48 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 	public async Task<T?> FirstOrDefaultAsync(Func<T, bool>? predicate = null)
 	{
 		var all = await ToListAsync();
-		return predicate != null ? all.FirstOrDefault(predicate) : all.FirstOrDefault();
+		return predicate is not null ? all.FirstOrDefault(predicate) : all.FirstOrDefault();
 	}
 
 	public async Task<T?> FindAsync(object keyValue)
 	{
 		var pkColumn = schema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
-		if (pkColumn == null) return default;
+		if (pkColumn is null) return default;
 
-		var all = await ToListAsync();
-		var pkProp = typeof(T).GetProperty(pkColumn.PropertyName);
-		if (pkProp == null) return default;
+		var keyStr = keyValue.ToString()!;
 
-		return all.FirstOrDefault(e =>
+		var rowIndex = await provider.FindRowIndexByKeyAsync(schema.TableName, keyStr);
+		if (rowIndex < 0) return default;
+
+		var rowData = await provider.GetRowByIndexAsync(schema.TableName, rowIndex);
+		if (rowData is null) return default;
+
+		var headerRow = await provider.GetRowByIndexAsync(schema.TableName, 1);
+		if (headerRow is null) return default;
+		var headers = headerRow.Select(h => h?.ToString() ?? string.Empty).ToList();
+
+		var entity = EntityMapper.MapFromRow<T>(rowData, headers, schema);
+
+		if (!_asNoTracking && !_trackedEntities.ContainsKey(entity))
 		{
-			var val = pkProp.GetValue(e);
-			if (val == null) return false;
-			return val.ToString() == keyValue.ToString();
-		});
+			_trackedEntities[entity] = EntityState.Unchanged;
+			_entityRowIndexes[entity] = rowIndex;
+			_snapshots[entity] = JsonSerializer.Serialize(entity);
+		}
+
+		return entity;
 	}
 
 	public async Task<int> CountAsync(Func<T, bool>? predicate = null)
 	{
 		var all = await ToListAsync();
-		return predicate != null ? all.Count(predicate) : all.Count;
+		return predicate is not null ? all.Count(predicate) : all.Count;
 	}
 
 	public async Task<bool> AnyAsync(Func<T, bool>? predicate = null)
 	{
 		var all = await ToListAsync();
-		return predicate != null ? all.Any(predicate) : all.Any();
+		return predicate is not null ? all.Any(predicate) : all.Any();
 	}
 
 	private async Task ProcessIncludes(List<T> entities)
@@ -115,7 +159,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		foreach (var includePath in _includes)
 		{
 			var prop = typeof(T).GetProperty(includePath);
-			if (prop == null) continue;
+			if (prop is null) continue;
 
 			bool isCollection = typeof(IEnumerable).IsAssignableFrom(prop.PropertyType) && prop.PropertyType != typeof(string);
 			var targetType = isCollection ? (prop.PropertyType.IsGenericType ? prop.PropertyType.GetGenericArguments()[0] : typeof(object)) : prop.PropertyType;
@@ -124,10 +168,8 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 			EntitySchema? relatedSchema;
 			if (!allSchemas.TryGetValue(relatedTableName, out relatedSchema))
 			{
-				// Fallback: match by ClassName when table name uses a different convention
-				// (e.g. fluent API HasSheetName("Products") vs. EntityMapper returning "Product")
 				relatedSchema = allSchemas.Values.FirstOrDefault(s => s.ClassName == targetType.Name);
-				if (relatedSchema == null) continue;
+				if (relatedSchema is null) continue;
 			}
 			var actualTableName = relatedSchema.TableName;
 
@@ -161,19 +203,19 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 	private void MapRelations(List<T> mainEntities, List<object> relatedData, PropertyInfo prop, bool isCollection, EntitySchema relatedSchema, Type targetType)
 	{
 		var pkPropName = schema.Columns.FirstOrDefault(c => c.IsPrimaryKey)?.PropertyName;
-		var pkProp = pkPropName != null ? typeof(T).GetProperty(pkPropName) : null;
+		var pkProp = pkPropName is not null ? typeof(T).GetProperty(pkPropName) : null;
 
 		var relPkPropName = relatedSchema.Columns.FirstOrDefault(c => c.IsPrimaryKey)?.PropertyName;
-		var relPkProp = relPkPropName != null ? targetType.GetProperty(relPkPropName) : null;
+		var relPkProp = relPkPropName is not null ? targetType.GetProperty(relPkPropName) : null;
 
 		foreach (var entity in mainEntities)
 		{
 			if (isCollection)
 			{
 				var fkColumn = relatedSchema.Columns.FirstOrDefault(c => c.IsForeignKey && c.ForeignKeyTable == schema.TableName);
-				var fkPropOnRelated = fkColumn != null ? targetType.GetProperty(fkColumn.PropertyName) : null;
+				var fkPropOnRelated = fkColumn is not null ? targetType.GetProperty(fkColumn.PropertyName) : null;
 
-				if (fkPropOnRelated != null && pkProp != null)
+				if (fkPropOnRelated is not null && pkProp is not null)
 				{
 					var myPkValue = pkProp.GetValue(entity);
 					var filtered = relatedData.Where(re => Equals(fkPropOnRelated.GetValue(re), myPkValue)).ToList();
@@ -187,14 +229,14 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 			else
 			{
 				var fkColumn = schema.Columns.FirstOrDefault(c => c.IsForeignKey && c.ForeignKeyTable == relatedSchema.TableName);
-				var fkProp = fkColumn != null ? typeof(T).GetProperty(fkColumn.PropertyName) : null;
+				var fkProp = fkColumn is not null ? typeof(T).GetProperty(fkColumn.PropertyName) : null;
 
-				if (fkProp != null && relPkProp != null)
+				if (fkProp is not null && relPkProp is not null)
 				{
 					var fkValue = fkProp.GetValue(entity);
 					var relatedObject = relatedData.FirstOrDefault(re => Equals(relPkProp.GetValue(re), fkValue));
 
-					if (relatedObject != null)
+					if (relatedObject is not null)
 					{
 						prop.SetValue(entity, relatedObject);
 					}
@@ -231,79 +273,32 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		if (toAdd.Count > 0)
 		{
 			var pkColumn = schema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
-			int nextId = pkColumn != null ? await GetAndIncrementIdFromCentralSchema(schema.TableName, toAdd.Count) : 0;
 
-			foreach (var item in toAdd)
+			if (pkColumn is not null && pkColumn.IsAutoIncrement)
 			{
-				if (pkColumn != null)
+				long nextId = await provider.GetAndIncrementIdAsync(schema.TableName, toAdd.Count);
+				var batchRows = new List<IList<object>>(toAdd.Count);
+				var pkProp = typeof(T).GetProperty(pkColumn.PropertyName);
+				foreach (var item in toAdd)
 				{
-					var prop = typeof(T).GetProperty(pkColumn.PropertyName);
-					prop?.SetValue(item.Key, Convert.ChangeType(nextId++, prop.PropertyType));
+					pkProp?.SetValue(item.Key, Convert.ChangeType(nextId, pkProp.PropertyType));
+					batchRows.Add(EntityMapper.MapToRow(item.Key, schema));
+					nextId++;
 				}
-				await provider.AppendRowAsync(schema.TableName, EntityMapper.MapToRow(item.Key, schema));
-				changes++;
+				await provider.AppendRowsAsync(schema.TableName, batchRows);
 			}
+			else
+			{
+				var batchRows = toAdd.Select(item => EntityMapper.MapToRow(item.Key, schema)).ToList();
+				await provider.AppendRowsAsync(schema.TableName, (IList<IList<object>>)batchRows);
+			}
+			changes += toAdd.Count;
 		}
 
 		_trackedEntities.Clear();
 		_entityRowIndexes.Clear();
+		_snapshots.Clear();
 		return changes;
-	}
-
-	private async Task<int> GetAndIncrementIdFromCentralSchema(string tableName, int count)
-	{
-		if (!await provider.SheetExistsAsync(SchemaTable))
-			throw new Exception("__SheetlySchema__ table not found.");
-
-		var rows = await provider.GetAllRowsAsync(SchemaTable);
-		int schemaIdValue = 0;
-		var pkPropertyName = schema.Columns.First(c => c.IsPrimaryKey).PropertyName;
-
-		int schemaRowIndex = -1;
-		for (int i = 1; i < rows.Count; i++)
-		{
-			if (rows[i].Count > 2 &&
-				rows[i][1]?.ToString() == tableName &&
-				rows[i][2]?.ToString() == pkPropertyName)
-			{
-				schemaRowIndex = i;
-				if (rows[i].Count > 28)
-					_ = int.TryParse(rows[i][28]?.ToString(), out schemaIdValue);
-				break;
-			}
-		}
-
-		// Also check actual data sheet for MAX(ID) - handles restart scenarios
-		int maxIdInSheet = 0;
-		if (await provider.SheetExistsAsync(tableName))
-		{
-			var dataRows = await provider.GetAllRowsAsync(tableName);
-			if (dataRows.Count > 1) // Has data beyond header
-			{
-				// Find ID column index (first column is typically ID)
-				for (int i = 1; i < dataRows.Count; i++)
-				{
-					if (dataRows[i].Count > 0 && int.TryParse(dataRows[i][0]?.ToString(), out int id))
-					{
-						if (id > maxIdInSheet)
-							maxIdInSheet = id;
-					}
-				}
-			}
-		}
-
-		int currentId = Math.Max(schemaIdValue, maxIdInSheet);
-
-		int nextId = currentId + 1;
-
-		int newSchemaValue = nextId + count - 1;
-
-		if (schemaRowIndex >= 0)
-		{
-			await provider.UpdateValueAsync(SchemaTable, $"AC{schemaRowIndex + 1}", newSchemaValue);
-		}
-
-		return nextId;
 	}
 }
 

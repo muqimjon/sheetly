@@ -1,4 +1,4 @@
-﻿using Sheetly.Core.Attributes;
+using Sheetly.Core.Attributes;
 using Sheetly.Core.Migration;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
@@ -16,8 +16,8 @@ internal static class EntityMapper
 
 	public static bool IsPrimaryKey(PropertyInfo prop)
 	{
-		if (prop.GetCustomAttribute<KeyAttribute>() != null) return true;
-		if (prop.GetCustomAttribute<PrimaryKeyAttribute>() != null) return true;
+		if (prop.GetCustomAttribute<KeyAttribute>() is not null) return true;
+		if (prop.GetCustomAttribute<PrimaryKeyAttribute>() is not null) return true;
 
 		var name = prop.Name.ToLower();
 		return name == "id" || name == (prop.DeclaringType?.Name.ToLower() + "id");
@@ -38,7 +38,7 @@ internal static class EntityMapper
 
 	private static object FormatValueForSheet(object? value)
 	{
-		if (value == null) return string.Empty;
+		if (value is null) return string.Empty;
 		if (value is bool b) return b ? "TRUE" : "FALSE";
 		if (value is DateTime dt) return dt.ToString("O");
 		if (value is DateTimeOffset dto) return dto.ToString("O");
@@ -53,10 +53,10 @@ internal static class EntityMapper
 		{
 			var header = actualHeaders[i];
 			var colSchema = schema.Columns.FirstOrDefault(c => c.Name.Equals(header, StringComparison.OrdinalIgnoreCase));
-			if (colSchema != null)
+			if (colSchema is not null)
 			{
 				var prop = type.GetProperty(colSchema.PropertyName);
-				if (prop != null && prop.CanWrite && i < row.Count)
+				if (prop is not null && prop.CanWrite && i < row.Count)
 				{
 					prop.SetValue(entity, ConvertValue(row[i]?.ToString(), prop.PropertyType));
 				}

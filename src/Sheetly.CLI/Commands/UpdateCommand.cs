@@ -1,11 +1,5 @@
 using Sheetly.CLI.Helpers;
-using Sheetly.Core.Configuration;
-using Sheetly.Core.Migration;
-using Sheetly.Core.Migrations;
-using Sheetly.Core.Migrations.Operations;
-using Sheetly.Google;
 using System.CommandLine;
-using System.Reflection;
 
 namespace Sheetly.CLI.Commands;
 
@@ -33,103 +27,35 @@ public class UpdateCommand : Command
 
 		try
 		{
-			var assembly = Assembly.LoadFrom(Path.GetFullPath(dllPath));
-			var contextType = assembly.GetExportedTypes().FirstOrDefault(t => CliHelper.IsSubclassOfSheetsContext(t))
-			?? throw new Exception("SheetsContext not found.");
+			var (assembly, loadContext) = CliHelper.LoadAssemblyIsolated(dllPath);
+			var coreAsm = CliHelper.GetCoreAssembly(assembly, loadContext);
+			var contextType = CliHelper.FindContextType(assembly);
 
-			string contextProjectDir = CliHelper.FindProjectRootFromDll(contextType.Assembly.Location);
-			string? connStr = CliHelper.GetConnectionString(contextProjectDir)
-				?? CliHelper.GetConnectionStringFromContext(contextType)
-				?? throw new Exception("ConnectionString not found. Configure OnConfiguring() or add appsettings.json.");
+			string? connStr = CliHelper.GetConnectionString(CliHelper.FindProjectRootFromDll(dllPath));
 
-			// Create provider directly — bypassing full context init so migration checks don't run
-			Console.WriteLine("⏳ Connecting to Google Sheets...");
-			var connString = SheetsConnectionString.Parse(connStr);
-			connString.Validate();
-			var provider = new GoogleSheetProvider(connString.CredentialsPath, connString.SpreadsheetId);
-			await provider.InitializeAsync();
+			Console.WriteLine("⏳ Applying pending migrations...");
+			var json = CliHelper.InvokeDesignTime(coreAsm, "UpdateDatabaseAsync", contextType, connStr);
+			var doc = CliHelper.ParseResult(json);
+			if (doc is null) return;
 
-			var migrationService = new GoogleMigrationService(provider);
+			var root = doc.RootElement;
+			int total = root.GetProperty("total").GetInt32();
 
-			var appliedMigrations = await migrationService.GetAppliedMigrationsAsync();
-
-			var migrationTypes = assembly.GetTypes()
-			.Where(t => t.IsSubclassOf(typeof(Migration)) && !t.IsAbstract)
-			.Select(t => new { Type = t, Attribute = t.GetCustomAttribute<MigrationAttribute>() })
-			.Where(x => x.Attribute != null)
-			.OrderBy(x => x.Attribute!.Id)
-			.ToList();
-
-			if (migrationTypes.Count == 0)
-			{
-				Console.WriteLine("⚠️ No migrations found in the project.");
-				return;
-			}
-
-			var pendingMigrations = migrationTypes
-			.Where(x => !appliedMigrations.Contains(x.Attribute!.Id))
-			.ToList();
-
-			if (pendingMigrations.Count == 0)
+			if (total == 0)
 			{
 				Console.WriteLine("✅ Database is up to date.");
 				return;
 			}
 
-			Console.WriteLine($"🚀 Found {pendingMigrations.Count} pending migration(s).");
+			foreach (var m in root.GetProperty("applied").EnumerateArray())
+				Console.WriteLine($"  Applied: {m.GetString()}");
 
-			var snapshotType = assembly.GetTypes()
-			.FirstOrDefault(t => t.Name.EndsWith("ModelSnapshot") && t.IsSubclassOf(typeof(MigrationSnapshot)));
-			MigrationSnapshot? currentSnapshot = snapshotType != null
-			? (MigrationSnapshot?)Activator.CreateInstance(snapshotType)
-			: null;
-
-			foreach (var pm in pendingMigrations)
-			{
-				var migrationId = pm.Attribute!.Id;
-				Console.Write($"Applying {migrationId}... ");
-
-				var migration = (Migration)Activator.CreateInstance(pm.Type)!;
-				var builder = new Core.Migrations.MigrationBuilder();
-				migration.Up(builder);
-				var operations = builder.GetOperations();
-
-				if (currentSnapshot != null)
-				{
-					foreach (var op in operations.OfType<CreateTableOperation>())
-					{
-						if (!currentSnapshot.Entities.TryGetValue(op.Name, out var entity)) continue;
-						op.ClassName = entity.ClassName;
-						foreach (var col in op.Columns)
-						{
-							var sc = entity.Columns.FirstOrDefault(c => c.Name == col.Name);
-							if (sc == null) continue;
-							col.IsAutoIncrement = sc.IsAutoIncrement;
-							if (sc.IsPrimaryKey) col.IsUnique = true;
-						}
-					}
-
-					foreach (var op in operations.OfType<AddColumnOperation>())
-					{
-						if (!currentSnapshot.Entities.TryGetValue(op.Table, out var entity)) continue;
-						var sc = entity.Columns.FirstOrDefault(c => c.Name == op.Name);
-						if (sc == null) continue;
-						op.IsAutoIncrement = sc.IsAutoIncrement;
-						op.ClassName = entity.ClassName;
-						if (sc.IsPrimaryKey) op.IsUnique = true;
-					}
-				}
-
-				await migrationService.ApplyMigrationAsync(operations, migrationId);
-				Console.WriteLine("Done.");
-			}
-
-			Console.WriteLine("✅ All migrations applied successfully.");
+			Console.WriteLine($"✅ {total} migration(s) applied successfully.");
 		}
 		catch (Exception ex)
 		{
 			Console.WriteLine($"❌ Error: {ex.Message}");
-			if (ex.InnerException != null) Console.WriteLine($"🔍 Detail: {ex.InnerException.Message}");
+			if (ex.InnerException is not null) Console.WriteLine($"🔍 Detail: {ex.InnerException.Message}");
 		}
 	}
 }

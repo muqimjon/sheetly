@@ -1,6 +1,5 @@
 using Sheetly.CLI.Helpers;
 using System.CommandLine;
-using System.Reflection;
 
 namespace Sheetly.CLI.Commands;
 
@@ -32,14 +31,13 @@ public class RollbackCommand : Command
 
 		try
 		{
-			var assembly = Assembly.LoadFrom(Path.GetFullPath(dllPath));
+			var (assembly, loadContext) = CliHelper.LoadAssemblyIsolated(dllPath);
 			var contextType = assembly.GetExportedTypes().FirstOrDefault(t => CliHelper.IsSubclassOfSheetsContext(t))
 				?? throw new Exception("SheetsContext not found.");
 
 			string contextProjectDir = CliHelper.FindProjectRootFromDll(contextType.Assembly.Location);
 			string migrationsDir = Path.Combine(contextProjectDir, "Migrations");
 
-			// Find last C# migration
 			var migrations = Directory.GetFiles(migrationsDir, "*.cs")
 				.Where(f => !f.EndsWith(".Designer.cs"))
 				.OrderByDescending(f => f)
@@ -63,18 +61,15 @@ public class RollbackCommand : Command
 				return;
 			}
 
-			// Delete the migration file
 			File.Delete(lastMigration);
 			Console.WriteLine($"✅ Deleted: {migrationFileName}");
 
-			// If there are previous migrations, restore snapshot from them
 			if (migrations.Count > 1)
 			{
 				Console.WriteLine("💡 Run 'dotnet-sheetly migrations add' again to regenerate snapshot from current model.");
 			}
 			else
 			{
-				// Delete ModelSnapshot if no more migrations
 				var snapshotFiles = Directory.GetFiles(migrationsDir, "*ModelSnapshot.cs");
 				foreach (var sf in snapshotFiles)
 				{
