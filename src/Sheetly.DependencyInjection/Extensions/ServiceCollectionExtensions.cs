@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Sheetly.Core;
 using Sheetly.Core.Configuration;
 
@@ -26,7 +26,7 @@ public static class ServiceCollectionExtensions
 				.GetConstructor([typeof(SheetsContextOptions<TContext>)]);
 
 			TContext context;
-			if (ctorWithOptions != null)
+			if (ctorWithOptions is not null)
 			{
 				context = (TContext)ctorWithOptions.Invoke([options]);
 				context.InitializeAsync().GetAwaiter().GetResult();
@@ -34,7 +34,7 @@ public static class ServiceCollectionExtensions
 			else
 			{
 				context = (TContext)Activator.CreateInstance(typeof(TContext), nonPublic: true)!;
-				if (options.Provider != null)
+				if (options.Provider is not null)
 					context.InitializeAsync(options.Provider).GetAwaiter().GetResult();
 				else
 					context.InitializeAsync().GetAwaiter().GetResult();

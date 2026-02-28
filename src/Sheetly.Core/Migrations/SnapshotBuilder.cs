@@ -22,7 +22,6 @@ public static class SnapshotBuilder
 		{
 			var entityType = set.PropertyType.GetGenericArguments()[0];
 
-			// Get ModelBuilder configuration for this entity (if available)
 			EntityMetadata? entityMetadata = null;
 			modelMetadata?.TryGetValue(entityType, out entityMetadata);
 
@@ -42,7 +41,6 @@ public static class SnapshotBuilder
 			{
 				if (IsNavigationProperty(prop)) continue;
 
-				// Get property configuration from ModelBuilder (if available)
 				PropertyBuilder? propConfig = null;
 				entityMetadata?.Properties.TryGetValue(prop.Name, out propConfig);
 
@@ -52,9 +50,8 @@ public static class SnapshotBuilder
 					PropertyName = prop.Name,
 					DataType = GetSimpleTypeName(prop.PropertyType),
 					IsPrimaryKey = IsPrimaryKey(prop),
-					IsAutoIncrement = IsPrimaryKey(prop),  // EF Core: PKs are auto-increment by default
+					IsAutoIncrement = IsPrimaryKey(prop),
 
-					// Combine attributes and ModelBuilder configuration
 					IsNullable = IsPropertyNullable(prop) && !prop.IsDefined(typeof(RequiredAttribute)) && !(propConfig?.IsRequiredValue ?? false),
 					IsRequired = prop.IsDefined(typeof(RequiredAttribute)) || (propConfig?.IsRequiredValue ?? false),
 					MaxLength = propConfig?.MaxLength ?? prop.GetCustomAttribute<MaxLengthAttribute>()?.Length,
@@ -64,17 +61,15 @@ public static class SnapshotBuilder
 					DefaultValue = propConfig?.DefaultValue
 				};
 
-				// Detect foreign keys
 				if (prop.Name.EndsWith("Id", StringComparison.OrdinalIgnoreCase) && !column.IsPrimaryKey)
 				{
 					var relatedName = prop.Name[..^2];
 					var navProp = properties.FirstOrDefault(p =>
 						p.Name.Equals(relatedName, StringComparison.OrdinalIgnoreCase));
 
-					if (navProp != null && IsNavigationProperty(navProp))
+					if (navProp is not null && IsNavigationProperty(navProp))
 					{
 						column.IsForeignKey = true;
-						// Resolve FK table name using fluent API if available
 						EntityMetadata? relatedMetadata = null;
 						modelMetadata?.TryGetValue(navProp.PropertyType, out relatedMetadata);
 						column.ForeignKeyTable = relatedMetadata?.SheetName ?? GetTableName(navProp.PropertyType);
@@ -95,9 +90,8 @@ public static class SnapshotBuilder
 	private static string GetTableName(Type entityType)
 	{
 		var tableAttr = entityType.GetCustomAttribute<TableAttribute>();
-		if (tableAttr != null) return tableAttr.Name;
+		if (tableAttr is not null) return tableAttr.Name;
 
-		// Pluralize simple names
 		var name = entityType.Name;
 		if (name.EndsWith("y")) return name[..^1] + "ies";
 		if (name.EndsWith("s") || name.EndsWith("x") || name.EndsWith("ch") || name.EndsWith("sh"))
@@ -148,7 +142,7 @@ public static class SnapshotBuilder
 
 	private static bool IsPropertyNullable(PropertyInfo prop)
 	{
-		return Nullable.GetUnderlyingType(prop.PropertyType) != null || !prop.PropertyType.IsValueType;
+		return Nullable.GetUnderlyingType(prop.PropertyType) is not null || !prop.PropertyType.IsValueType;
 	}
 
 	/// <summary>

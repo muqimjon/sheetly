@@ -21,20 +21,16 @@ public class ModelSnapshotGenerator
 	{
 		var sb = new StringBuilder();
 
-		// Using statements
 		sb.AppendLine("using System;");
 		sb.AppendLine("using Sheetly.Core.Migration;");
 		sb.AppendLine();
 
-		// Namespace
 		sb.AppendLine($"namespace {targetNamespace};");
 		sb.AppendLine();
 
-		// Class definition with inheritance and constructor
 		sb.AppendLine($"public partial class {contextName}ModelSnapshot : MigrationSnapshot");
 		sb.AppendLine("{");
 
-		// Constructor
 		sb.AppendLine($"{Indent}public {contextName}ModelSnapshot()");
 		sb.AppendLine($"{Indent}{{");
 		sb.AppendLine($"{Indent}{Indent}var snapshot = BuildModel();");
@@ -45,7 +41,6 @@ public class ModelSnapshotGenerator
 		sb.AppendLine($"{Indent}}}");
 		sb.AppendLine();
 
-		// BuildModel method
 		sb.AppendLine($"{Indent}public static MigrationSnapshot BuildModel()");
 		sb.AppendLine($"{Indent}{{");
 		sb.AppendLine($"{Indent}{Indent}var snapshot = new MigrationSnapshot");
@@ -56,7 +51,6 @@ public class ModelSnapshotGenerator
 		sb.AppendLine($"{Indent}{Indent}}};");
 		sb.AppendLine();
 
-		// Generate entities
 		foreach (var entity in snapshot.Entities.OrderBy(e => e.Key))
 		{
 			GenerateEntity(sb, entity.Value, Indent + Indent);
@@ -89,7 +83,6 @@ public class ModelSnapshotGenerator
 
 		sb.AppendLine($"{indent}{Indent}}},");
 
-		// Relationships
 		if (entity.Relationships.Count > 0)
 		{
 			sb.AppendLine($"{indent}{Indent}Relationships = new List<RelationshipSchema>");
@@ -156,7 +149,7 @@ public class ModelSnapshotGenerator
 		if (column.MaxValue.HasValue)
 			sb.AppendLine($"{indent}{Indent}MaxValue = {column.MaxValue.Value}m,");
 
-		if (column.DefaultValue != null)
+		if (column.DefaultValue is not null)
 			sb.AppendLine($"{indent}{Indent}DefaultValue = {FormatValue(column.DefaultValue)},");
 
 		if (!string.IsNullOrEmpty(column.CheckConstraint))
@@ -174,7 +167,6 @@ public class ModelSnapshotGenerator
 		if (!string.IsNullOrEmpty(column.Comment))
 			sb.AppendLine($"{indent}{Indent}Comment = \"{EscapeString(column.Comment)}\",");
 
-		// Remove trailing comma from last property
 		var lastLine = sb.ToString().TrimEnd();
 		if (lastLine.EndsWith(","))
 		{

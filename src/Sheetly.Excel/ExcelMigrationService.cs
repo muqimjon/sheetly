@@ -178,14 +178,14 @@ public class ExcelMigrationService(ISheetsProvider provider) : IMigrationService
 				while (updatedRow.Count < SchemaTableHeaders.Length)
 					updatedRow.Add("");
 
-				if (op.ClrType != null) updatedRow[4] = op.ClrType.Name;
+				if (op.ClrType is not null) updatedRow[4] = op.ClrType.Name;
 				if (op.IsNullable.HasValue)
 				{
 					updatedRow[5] = op.IsNullable.Value.ToString();
 					updatedRow[6] = (!op.IsNullable.Value).ToString();
 				}
 				if (op.MaxLength.HasValue) updatedRow[15] = op.MaxLength.Value.ToString();
-				if (op.DefaultValue != null) updatedRow[21] = op.DefaultValue.ToString() ?? "";
+				if (op.DefaultValue is not null) updatedRow[21] = op.DefaultValue.ToString() ?? "";
 
 				await provider.UpdateRowAsync(SchemaTable, i + 1, updatedRow);
 				break;

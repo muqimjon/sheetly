@@ -10,22 +10,21 @@ public class UniqueValidator : IValidationRule
 	{
 		var result = new ValidationResult();
 
-		if (context.Schema == null || context.TrackedEntities == null || context.EntityType == null)
+		if (context.Schema is null || context.TrackedEntities is null || context.EntityType is null)
 			return result;
 
 		foreach (var column in context.Schema.Columns.Where(c => c.IsUnique))
 		{
 			var property = context.EntityType.GetProperty(column.PropertyName);
-			if (property == null) continue;
+			if (property is null) continue;
 
 			var currentValue = property.GetValue(entity);
-			if (currentValue == null) continue; // Null values are allowed for unique constraints unless Required
+			if (currentValue is null) continue;
 
-			// Check for duplicates in tracked entities
 			var duplicates = context.TrackedEntities
 				.Where(e => e.GetType() == context.EntityType && !ReferenceEquals(e, entity))
 				.Select(e => property.GetValue(e))
-				.Where(v => v != null && v.Equals(currentValue))
+				.Where(v => v is not null && v.Equals(currentValue))
 				.ToList();
 
 			if (duplicates.Count > 0)

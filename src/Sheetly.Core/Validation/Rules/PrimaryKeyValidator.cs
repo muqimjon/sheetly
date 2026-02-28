@@ -9,26 +9,23 @@ public class PrimaryKeyValidator : IValidationRule
 	{
 		var result = new ValidationResult();
 
-		if (context.Schema == null) return result;
+		if (context.Schema is null) return result;
 
 		var entityType = entity.GetType();
 		var pkColumn = context.Schema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
 
-		if (pkColumn == null) return result;
+		if (pkColumn is null) return result;
 
 		var property = entityType.GetProperty(pkColumn.PropertyName);
-		if (property == null) return result;
+		if (property is null) return result;
 
 		var value = property.GetValue(entity);
 
-		// Check if value is null or default
-		if (value == null || IsDefaultValue(value, property.PropertyType))
+		if (value is null || IsDefaultValue(value, property.PropertyType))
 		{
-			// This is a new entity - PK will be auto-generated
 			return result;
 		}
 
-		// Check for duplicates in tracked entities
 		if (context.ExistingPrimaryKeys.Contains(value))
 		{
 			result.AddError(new ValidationError(pkColumn.PropertyName,
@@ -38,7 +35,6 @@ public class PrimaryKeyValidator : IValidationRule
 			});
 		}
 
-		// Check for duplicates among other tracked entities
 		foreach (var other in context.TrackedEntities)
 		{
 			if (ReferenceEquals(entity, other)) continue;

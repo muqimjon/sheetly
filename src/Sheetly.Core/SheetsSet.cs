@@ -108,13 +108,13 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 	public async Task<T?> FirstOrDefaultAsync(Func<T, bool>? predicate = null)
 	{
 		var all = await ToListAsync();
-		return predicate != null ? all.FirstOrDefault(predicate) : all.FirstOrDefault();
+		return predicate is not null ? all.FirstOrDefault(predicate) : all.FirstOrDefault();
 	}
 
 	public async Task<T?> FindAsync(object keyValue)
 	{
 		var pkColumn = schema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
-		if (pkColumn == null) return default;
+		if (pkColumn is null) return default;
 
 		var keyStr = keyValue.ToString()!;
 
@@ -122,10 +122,10 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		if (rowIndex < 0) return default;
 
 		var rowData = await provider.GetRowByIndexAsync(schema.TableName, rowIndex);
-		if (rowData == null) return default;
+		if (rowData is null) return default;
 
 		var headerRow = await provider.GetRowByIndexAsync(schema.TableName, 1);
-		if (headerRow == null) return default;
+		if (headerRow is null) return default;
 		var headers = headerRow.Select(h => h?.ToString() ?? string.Empty).ToList();
 
 		var entity = EntityMapper.MapFromRow<T>(rowData, headers, schema);
@@ -143,13 +143,13 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 	public async Task<int> CountAsync(Func<T, bool>? predicate = null)
 	{
 		var all = await ToListAsync();
-		return predicate != null ? all.Count(predicate) : all.Count;
+		return predicate is not null ? all.Count(predicate) : all.Count;
 	}
 
 	public async Task<bool> AnyAsync(Func<T, bool>? predicate = null)
 	{
 		var all = await ToListAsync();
-		return predicate != null ? all.Any(predicate) : all.Any();
+		return predicate is not null ? all.Any(predicate) : all.Any();
 	}
 
 	private async Task ProcessIncludes(List<T> entities)
@@ -159,7 +159,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		foreach (var includePath in _includes)
 		{
 			var prop = typeof(T).GetProperty(includePath);
-			if (prop == null) continue;
+			if (prop is null) continue;
 
 			bool isCollection = typeof(IEnumerable).IsAssignableFrom(prop.PropertyType) && prop.PropertyType != typeof(string);
 			var targetType = isCollection ? (prop.PropertyType.IsGenericType ? prop.PropertyType.GetGenericArguments()[0] : typeof(object)) : prop.PropertyType;
@@ -169,7 +169,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 			if (!allSchemas.TryGetValue(relatedTableName, out relatedSchema))
 			{
 				relatedSchema = allSchemas.Values.FirstOrDefault(s => s.ClassName == targetType.Name);
-				if (relatedSchema == null) continue;
+				if (relatedSchema is null) continue;
 			}
 			var actualTableName = relatedSchema.TableName;
 
@@ -203,19 +203,19 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 	private void MapRelations(List<T> mainEntities, List<object> relatedData, PropertyInfo prop, bool isCollection, EntitySchema relatedSchema, Type targetType)
 	{
 		var pkPropName = schema.Columns.FirstOrDefault(c => c.IsPrimaryKey)?.PropertyName;
-		var pkProp = pkPropName != null ? typeof(T).GetProperty(pkPropName) : null;
+		var pkProp = pkPropName is not null ? typeof(T).GetProperty(pkPropName) : null;
 
 		var relPkPropName = relatedSchema.Columns.FirstOrDefault(c => c.IsPrimaryKey)?.PropertyName;
-		var relPkProp = relPkPropName != null ? targetType.GetProperty(relPkPropName) : null;
+		var relPkProp = relPkPropName is not null ? targetType.GetProperty(relPkPropName) : null;
 
 		foreach (var entity in mainEntities)
 		{
 			if (isCollection)
 			{
 				var fkColumn = relatedSchema.Columns.FirstOrDefault(c => c.IsForeignKey && c.ForeignKeyTable == schema.TableName);
-				var fkPropOnRelated = fkColumn != null ? targetType.GetProperty(fkColumn.PropertyName) : null;
+				var fkPropOnRelated = fkColumn is not null ? targetType.GetProperty(fkColumn.PropertyName) : null;
 
-				if (fkPropOnRelated != null && pkProp != null)
+				if (fkPropOnRelated is not null && pkProp is not null)
 				{
 					var myPkValue = pkProp.GetValue(entity);
 					var filtered = relatedData.Where(re => Equals(fkPropOnRelated.GetValue(re), myPkValue)).ToList();
@@ -229,14 +229,14 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 			else
 			{
 				var fkColumn = schema.Columns.FirstOrDefault(c => c.IsForeignKey && c.ForeignKeyTable == relatedSchema.TableName);
-				var fkProp = fkColumn != null ? typeof(T).GetProperty(fkColumn.PropertyName) : null;
+				var fkProp = fkColumn is not null ? typeof(T).GetProperty(fkColumn.PropertyName) : null;
 
-				if (fkProp != null && relPkProp != null)
+				if (fkProp is not null && relPkProp is not null)
 				{
 					var fkValue = fkProp.GetValue(entity);
 					var relatedObject = relatedData.FirstOrDefault(re => Equals(relPkProp.GetValue(re), fkValue));
 
-					if (relatedObject != null)
+					if (relatedObject is not null)
 					{
 						prop.SetValue(entity, relatedObject);
 					}
@@ -274,7 +274,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		{
 			var pkColumn = schema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
 
-			if (pkColumn != null)
+			if (pkColumn is not null)
 			{
 				int nextId = await provider.GetMaxIdAsync(schema.TableName) + 1;
 				var batchRows = new List<IList<object>>(toAdd.Count);

@@ -86,7 +86,7 @@ public class ConstraintValidator
 
 	private EntitySchema? GetEntitySchema(string tableName)
 	{
-		if (_schema == null) return null;
+		if (_schema is null) return null;
 
 		_schema.Entities.TryGetValue(tableName, out var schema);
 		return schema;

@@ -12,7 +12,6 @@ public class ModelDiffer
 		var previousEntities = previous?.Entities ?? new Dictionary<string, EntitySchema>();
 		var currentEntities = current.Entities;
 
-		// Find new tables
 		foreach (var (tableName, entity) in currentEntities)
 		{
 			if (!previousEntities.ContainsKey(tableName))
@@ -21,13 +20,11 @@ public class ModelDiffer
 			}
 			else
 			{
-				// Find column differences
 				var previousEntity = previousEntities[tableName];
 				operations.AddRange(GetColumnDifferences(tableName, previousEntity, entity));
 			}
 		}
 
-		// Find dropped tables
 		foreach (var (tableName, _) in previousEntities)
 		{
 			if (!currentEntities.ContainsKey(tableName))
@@ -44,7 +41,7 @@ public class ModelDiffer
 		var operation = new CreateTableOperation
 		{
 			Name = entity.TableName,
-			ClassName = entity.ClassName  // For scaffolding support
+			ClassName = entity.ClassName
 		};
 
 		foreach (var column in entity.Columns)
@@ -56,8 +53,8 @@ public class ModelDiffer
 				ClrType = GetClrType(column.DataType),
 				IsNullable = column.IsNullable,
 				IsPrimaryKey = column.IsPrimaryKey,
-				IsUnique = column.IsPrimaryKey || column.IsUnique,  // PK is always unique
-				IsAutoIncrement = column.IsAutoIncrement,  // Read from snapshot (set by SnapshotBuilder)
+				IsUnique = column.IsPrimaryKey || column.IsUnique,
+				IsAutoIncrement = column.IsAutoIncrement,
 				MaxLength = column.MaxLength,
 				DefaultValue = column.DefaultValue,
 				ForeignKeyTable = column.IsForeignKey ? column.ForeignKeyTable : null
@@ -77,7 +74,6 @@ public class ModelDiffer
 		var previousColumns = previous.Columns.ToDictionary(c => c.Name);
 		var currentColumns = current.Columns.ToDictionary(c => c.Name);
 
-		// Find new columns
 		foreach (var (columnName, column) in currentColumns)
 		{
 			if (!previousColumns.ContainsKey(columnName))
@@ -96,7 +92,6 @@ public class ModelDiffer
 			}
 			else
 			{
-				// Check for alterations
 				var prevCol = previousColumns[columnName];
 				if (HasColumnChanged(prevCol, column))
 				{
@@ -113,7 +108,6 @@ public class ModelDiffer
 			}
 		}
 
-		// Find dropped columns
 		foreach (var (columnName, _) in previousColumns)
 		{
 			if (!currentColumns.ContainsKey(columnName))

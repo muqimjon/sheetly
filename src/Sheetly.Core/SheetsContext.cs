@@ -34,10 +34,10 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 
 	public virtual async Task InitializeAsync(ISheetsProvider? provider = null, IMigrationService? migrationService = null)
 	{
-		if (provider == null)
+		if (provider is null)
 		{
 			var options = _constructorOptions ?? new SheetsOptions();
-			if (_constructorOptions == null)
+			if (_constructorOptions is null)
 				OnConfiguring(options);
 
 			provider = options.Provider ?? throw new InvalidOperationException(
@@ -95,15 +95,15 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 	/// </summary>
 	private void CheckModelSnapshotSync()
 	{
-		if (_currentSnapshot == null) return;
+		if (_currentSnapshot is null) return;
 
 		var snapshotType = GetType().Assembly.GetTypes()
 			.FirstOrDefault(t => t.Name.EndsWith("ModelSnapshot") && t.IsSubclassOf(typeof(MigrationSnapshot)));
 
-		if (snapshotType == null) return;
+		if (snapshotType is null) return;
 
 		var storedSnapshot = (MigrationSnapshot?)Activator.CreateInstance(snapshotType);
-		if (storedSnapshot == null) return;
+		if (storedSnapshot is null) return;
 
 		if (_currentSnapshot.ModelHash != storedSnapshot.ModelHash)
 		{
@@ -122,7 +122,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 		foreach (var migrationType in migrationTypes)
 		{
 			var migrationAttr = migrationType.GetCustomAttribute<Migrations.MigrationAttribute>();
-			if (migrationAttr != null)
+			if (migrationAttr is not null)
 			{
 				migrations.Add(migrationAttr.Id);
 			}
@@ -166,7 +166,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 				}
 			}
 
-			if (schema != null)
+			if (schema is not null)
 			{
 				var setInstance = Activator.CreateInstance(
 					typeof(SheetsSet<>).MakeGenericType(entityType),
@@ -174,7 +174,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 					schema,
 					snapshot.Entities);
 
-				if (setInstance != null)
+				if (setInstance is not null)
 				{
 					prop.SetValue(this, setInstance);
 					sets[entityType] = setInstance;
@@ -185,7 +185,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 
 	public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
 	{
-		if (Provider == null)
+		if (Provider is null)
 			throw new InvalidOperationException(
 				"Context not initialized. Call InitializeAsync() first.");
 
@@ -213,8 +213,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 				allDeletedEntities.AddRange(deleted);
 		}
 
-		// Validate locally before any API calls
-		if (_validator != null && allPendingEntities.Count > 0)
+		if (_validator is not null && allPendingEntities.Count > 0)
 		{
 			var result = new ValidationResult();
 
@@ -227,7 +226,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 				if (!(_currentSnapshot?.Entities.TryGetValue(tableName, out schema) == true))
 					schema = _currentSnapshot?.Entities.Values.FirstOrDefault(e => e.ClassName == entityType.Name);
 
-				if (schema != null)
+				if (schema is not null)
 				{
 					var context = new ValidationContext
 					{
@@ -259,7 +258,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 			var method = set.GetType().GetMethod("SaveChangesInternalAsync",
 				BindingFlags.NonPublic | BindingFlags.Instance);
 
-			if (method != null)
+			if (method is not null)
 			{
 				var result = await (Task<int>)method.Invoke(set, null)!;
 				total += result;
@@ -273,7 +272,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 	/// </summary>
 	private async Task ValidateForeignKeyReferencesAsync(List<object> pendingEntities)
 	{
-		if (_currentSnapshot?.Entities == null || Provider == null) return;
+		if (_currentSnapshot?.Entities is null || Provider is null) return;
 
 		var fkChecks = new Dictionary<string, HashSet<string>>();
 
@@ -282,15 +281,15 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 			var entityType = entity.GetType();
 			var schema = _currentSnapshot.Entities.Values
 				.FirstOrDefault(e => e.ClassName == entityType.Name);
-			if (schema == null) continue;
+			if (schema is null) continue;
 
 			foreach (var column in schema.Columns.Where(c => c.IsForeignKey && !string.IsNullOrEmpty(c.ForeignKeyTable)))
 			{
 				var prop = entityType.GetProperty(column.PropertyName);
-				if (prop == null) continue;
+				if (prop is null) continue;
 
 				var value = prop.GetValue(entity);
-				if (value == null || IsDefaultFkValue(value, prop.PropertyType)) continue;
+				if (value is null || IsDefaultFkValue(value, prop.PropertyType)) continue;
 
 				var fkTableName = column.ForeignKeyTable!;
 				if (!fkChecks.ContainsKey(fkTableName))
@@ -313,10 +312,10 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 					$"Cannot reference IDs: {string.Join(", ", fkValues)}");
 
 			var referencedSchema = _currentSnapshot.Entities.GetValueOrDefault(referencedTable);
-			if (referencedSchema == null) continue;
+			if (referencedSchema is null) continue;
 
 			var pkColumn = referencedSchema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
-			if (pkColumn == null) continue;
+			if (pkColumn is null) continue;
 
 			var headers = rows[0].Select(h => h?.ToString() ?? "").ToList();
 			int pkColumnIndex = headers.IndexOf(pkColumn.PropertyName);
@@ -356,21 +355,21 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 	/// </summary>
 	private async Task ValidateForeignKeyConstraintsOnDelete(List<object> deletedEntities)
 	{
-		if (_currentSnapshot?.Entities == null || Provider == null) return;
+		if (_currentSnapshot?.Entities is null || Provider is null) return;
 
 		foreach (var deletedEntity in deletedEntities)
 		{
 			var entityType = deletedEntity.GetType();
 			var entitySchema = _currentSnapshot.Entities.Values
 				.FirstOrDefault(e => e.ClassName == entityType.Name);
-			if (entitySchema == null) continue;
+			if (entitySchema is null) continue;
 
 			var pkColumn = entitySchema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
-			if (pkColumn == null) continue;
+			if (pkColumn is null) continue;
 
 			var pkProp = entityType.GetProperty(pkColumn.PropertyName);
 			var pkValue = pkProp?.GetValue(deletedEntity);
-			if (pkValue == null) continue;
+			if (pkValue is null) continue;
 
 			foreach (var otherEntity in _currentSnapshot.Entities.Values)
 			{
@@ -430,7 +429,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 							break;
 
 						case ForeignKeyAction.SetDefault:
-							if (fkColumn.DefaultValue != null)
+							if (fkColumn.DefaultValue is not null)
 								foreach (var rowIndex in referencingRows)
 									await Provider.UpdateValueAsync(otherEntity.TableName, GetCellAddress(fkColumnIndex, rowIndex), fkColumn.DefaultValue);
 							break;

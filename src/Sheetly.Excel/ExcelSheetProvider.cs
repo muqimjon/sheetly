@@ -52,7 +52,7 @@ public sealed class ExcelSheetProvider : ISheetsProvider, IAsyncDisposable
 
 		var result = new List<IList<object>>();
 		var rangeUsed = ws.RangeUsed();
-		if (rangeUsed == null)
+		if (rangeUsed is null)
 			return Task.FromResult(result);
 
 		int lastCol = rangeUsed.LastColumn().ColumnNumber();
@@ -74,7 +74,7 @@ public sealed class ExcelSheetProvider : ISheetsProvider, IAsyncDisposable
 			return Task.FromResult<IList<object>?>(null);
 
 		var rangeUsed = ws.RangeUsed();
-		if (rangeUsed == null || rowIndex < 1 || rowIndex > rangeUsed.LastRow().RowNumber())
+		if (rangeUsed is null || rowIndex < 1 || rowIndex > rangeUsed.LastRow().RowNumber())
 			return Task.FromResult<IList<object>?>(null);
 
 		int lastCol = rangeUsed.LastColumn().ColumnNumber();
@@ -92,7 +92,7 @@ public sealed class ExcelSheetProvider : ISheetsProvider, IAsyncDisposable
 			return Task.FromResult(-1);
 
 		var rangeUsed = ws.RangeUsed();
-		if (rangeUsed == null)
+		if (rangeUsed is null)
 			return Task.FromResult(-1);
 
 		int lastRow = rangeUsed.LastRow().RowNumber();
@@ -235,7 +235,7 @@ public sealed class ExcelSheetProvider : ISheetsProvider, IAsyncDisposable
 			return Task.CompletedTask;
 
 		var rangeUsed = ws.RangeUsed();
-		if (rangeUsed == null || rangeUsed.LastRow().RowNumber() < 2)
+		if (rangeUsed is null || rangeUsed.LastRow().RowNumber() < 2)
 			return Task.CompletedTask;
 
 		int lastRow = rangeUsed.LastRow().RowNumber();
@@ -279,13 +279,11 @@ public sealed class ExcelSheetProvider : ISheetsProvider, IAsyncDisposable
 
 	public Task AddDataValidationAsync(string sheetName, int columnIndex, string message)
 	{
-		// Excel data validation is metadata-only; no runtime enforcement like Google Sheets
 		return Task.CompletedTask;
 	}
 
 	public Task SetCheckboxAsync(string sheetName, int startRow, int endRow, int columnId)
 	{
-		// ClosedXML doesn't support checkbox data validation natively
 		return Task.CompletedTask;
 	}
 
@@ -303,7 +301,7 @@ public sealed class ExcelSheetProvider : ISheetsProvider, IAsyncDisposable
 
 	private void EnsureWorkbook()
 	{
-		if (_workbook == null)
+		if (_workbook is null)
 			throw new InvalidOperationException(
 				"Workbook not initialized. Call InitializeAsync() first.");
 	}
@@ -323,14 +321,14 @@ public sealed class ExcelSheetProvider : ISheetsProvider, IAsyncDisposable
 	private static int GetNextEmptyRow(IXLWorksheet ws)
 	{
 		var lastUsed = ws.LastRowUsed();
-		return lastUsed == null ? 2 : lastUsed.RowNumber() + 1;
+		return lastUsed is null ? 2 : lastUsed.RowNumber() + 1;
 	}
 
 	private static int GetMaxIdFromSheet(IXLWorksheet ws)
 	{
 		int max = 0;
 		var rangeUsed = ws.RangeUsed();
-		if (rangeUsed == null) return max;
+		if (rangeUsed is null) return max;
 
 		int lastRow = rangeUsed.LastRow().RowNumber();
 		for (int r = 2; r <= lastRow; r++)

@@ -9,24 +9,23 @@ public class DataTypeValidator : IValidationRule
 	{
 		var result = new ValidationResult();
 
-		if (context.Schema == null) return result;
+		if (context.Schema is null) return result;
 
 		var entityType = entity.GetType();
 
 		foreach (var column in context.Schema.Columns)
 		{
 			var property = entityType.GetProperty(column.PropertyName);
-			if (property == null) continue;
+			if (property is null) continue;
 
 			var value = property.GetValue(entity);
-			if (value == null) continue;
+			if (value is null) continue;
 
 			var valueType = value.GetType();
 			var expectedType = GetExpectedType(column.DataType);
 
-			if (expectedType == null) continue;
+			if (expectedType is null) continue;
 
-			// Check type compatibility
 			if (!IsTypeCompatible(valueType, expectedType))
 			{
 				result.AddError(new ValidationError(column.PropertyName,
@@ -65,11 +64,10 @@ public class DataTypeValidator : IValidationRule
 		if (expected == actual) return true;
 		if (expected.IsAssignableFrom(actual)) return true;
 
-		// Numeric type compatibility
 		var numericTypes = new[] { typeof(int), typeof(long), typeof(short), typeof(byte), typeof(decimal), typeof(double), typeof(float) };
 		if (numericTypes.Contains(expected) && numericTypes.Contains(actual))
 		{
-			return true; // Allow numeric conversions
+			return true;
 		}
 
 		return false;

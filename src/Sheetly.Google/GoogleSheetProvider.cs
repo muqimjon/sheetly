@@ -45,10 +45,9 @@ public class GoogleSheetProvider : ISheetsProvider
 					   ex.HttpStatusCode == System.Net.HttpStatusCode.ServiceUnavailable))
 			{
 				await Task.Delay(delay);
-				delay = TimeSpan.FromSeconds(delay.TotalSeconds * 2); // exponential backoff
+				delay = TimeSpan.FromSeconds(delay.TotalSeconds * 2);
 			}
 		}
-		// Final attempt — let the exception propagate
 		return await request.ExecuteAsync();
 	}
 
@@ -105,7 +104,7 @@ public class GoogleSheetProvider : ISheetsProvider
 	{
 		var ss = await ExecuteWithRetryAsync(NextService.Spreadsheets.Get(_spreadsheetId));
 		_sheetCache = ss.Sheets
-			.Where(s => s.Properties?.Title != null)
+			.Where(s => s.Properties?.Title is not null)
 			.ToDictionary(s => s.Properties.Title!, s => (int)(s.Properties.SheetId ?? 0));
 	}
 
@@ -154,7 +153,7 @@ public class GoogleSheetProvider : ISheetsProvider
 		request.ValueRenderOption = SpreadsheetsResource.ValuesResource.GetRequest.ValueRenderOptionEnum.UNFORMATTEDVALUE;
 		var response = await ExecuteWithRetryAsync(request);
 
-		if (response.Values == null) return -1;
+		if (response.Values is null) return -1;
 		for (int i = 1; i < response.Values.Count; i++)
 		{
 			var cell = response.Values[i].Count > 0 ? response.Values[i][0]?.ToString() : null;
@@ -179,7 +178,6 @@ public class GoogleSheetProvider : ISheetsProvider
 	/// </summary>
 	public async Task<int> AppendRowAndGetIdAsync(string sheetName, IList<object> row)
 	{
-		// Replace the first element with a MAX+1 formula so Sheets computes the next ID atomically
 		var rowWithFormula = new List<object>(row)
 		{
 			[0] = $"=IFERROR(MAX(INDIRECT(\"'{sheetName}'!A2:A\"))+1,1)"
@@ -190,24 +188,19 @@ public class GoogleSheetProvider : ISheetsProvider
 		request.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
 		var response = await ExecuteWithRetryAsync(request);
 
-		// Extract the row number from the updated range (e.g. "'Products'!A5:E5" → 5)
 		var updatedRange = response.Updates?.UpdatedRange ?? string.Empty;
 		var rowNumber = ExtractRowNumberFromRange(updatedRange);
 
-		// Read back the computed ID value
 		var idValue = await GetValueAsync(sheetName, $"A{rowNumber}");
-		return idValue != null && int.TryParse(idValue.ToString(), out var id) ? id : rowNumber - 1;
+		return idValue is not null && int.TryParse(idValue.ToString(), out var id) ? id : rowNumber - 1;
 	}
 
 	/// <summary>Parses the row number from a Sheets range string like "'Table'!A5:E5" or "A5:E5".</summary>
 	private static int ExtractRowNumberFromRange(string range)
 	{
-		// Strip sheet prefix if present
 		var colonIdx = range.IndexOf('!');
 		var cellPart = colonIdx >= 0 ? range[(colonIdx + 1)..] : range;
-		// cellPart looks like "A5:E5" — take the start cell
 		var startCell = cellPart.Split(':')[0];
-		// Strip column letters
 		var digits = new string(startCell.SkipWhile(c => !char.IsDigit(c)).ToArray());
 		return int.TryParse(digits, out var row) ? row : 2;
 	}
@@ -235,7 +228,7 @@ public class GoogleSheetProvider : ISheetsProvider
 		request.ValueRenderOption = SpreadsheetsResource.ValuesResource.GetRequest.ValueRenderOptionEnum.UNFORMATTEDVALUE;
 		var response = await ExecuteWithRetryAsync(request);
 		int max = 0;
-		if (response.Values != null)
+		if (response.Values is not null)
 			foreach (var row in response.Values)
 				if (row.Count > 0 && int.TryParse(row[0]?.ToString(), out var id) && id > max)
 					max = id;
@@ -282,7 +275,7 @@ public class GoogleSheetProvider : ISheetsProvider
 					GridProperties = new GridProperties
 					{
 						FrozenRowCount = 1,
-						ColumnCount = headers.Count  // Explicitly set column count
+						ColumnCount = headers.Count
 					}
 				}
 			}
@@ -297,7 +290,6 @@ public class GoogleSheetProvider : ISheetsProvider
 			NextService.Spreadsheets.BatchUpdate(batchRequest, _spreadsheetId));
 		var sheetId = response.Replies[0].AddSheet.Properties.SheetId;
 
-		// Update cache so subsequent SheetExistsAsync/GetSheetIdInternal are free
 		_sheetCache[sheetName] = (int)(sheetId ?? 0);
 
 		var headerRows = new List<RowData>
@@ -346,7 +338,7 @@ public class GoogleSheetProvider : ISheetsProvider
 	public async Task DeleteSheetAsync(string sheetName)
 	{
 		var sheetId = await GetSheetIdInternal(sheetName);
-		if (sheetId == null) return;
+		if (sheetId is null) return;
 		var request = new Request { DeleteSheet = new DeleteSheetRequest { SheetId = sheetId } };
 		await ExecuteWithRetryAsync(NextService.Spreadsheets.BatchUpdate(
 			new BatchUpdateSpreadsheetRequest { Requests = [request] }, _spreadsheetId));
@@ -377,7 +369,7 @@ public class GoogleSheetProvider : ISheetsProvider
 	public async Task HideSheetAsync(string sheetName)
 	{
 		var sheetId = await GetSheetIdInternal(sheetName);
-		if (sheetId == null) return;
+		if (sheetId is null) return;
 		var request = new Request
 		{
 			UpdateSheetProperties = new UpdateSheetPropertiesRequest

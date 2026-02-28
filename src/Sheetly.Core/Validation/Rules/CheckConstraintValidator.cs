@@ -11,17 +11,16 @@ public class CheckConstraintValidator : IValidationRule
 	{
 		var result = new ValidationResult();
 
-		if (context.Schema == null || context.EntityType == null) return result;
+		if (context.Schema is null || context.EntityType is null) return result;
 
 		foreach (var column in context.Schema.Columns.Where(c => !string.IsNullOrEmpty(c.CheckConstraint)))
 		{
 			var property = context.EntityType.GetProperty(column.PropertyName);
-			if (property == null) continue;
+			if (property is null) continue;
 
 			var value = property.GetValue(entity);
-			if (value == null) continue;
+			if (value is null) continue;
 
-			// Parse and evaluate the check constraint
 			if (!EvaluateCheckConstraint(column.CheckConstraint!, column.PropertyName, value))
 			{
 				result.AddError(
@@ -41,10 +40,8 @@ public class CheckConstraintValidator : IValidationRule
 	{
 		try
 		{
-			// Remove extra whitespace
 			constraint = constraint.Trim();
 
-			// Try to parse simple constraints like "PropertyName > 0"
 			if (constraint.Contains(">") || constraint.Contains("<") || constraint.Contains("="))
 			{
 				string op;
@@ -54,19 +51,17 @@ public class CheckConstraintValidator : IValidationRule
 				else if (constraint.Contains(">")) op = ">";
 				else if (constraint.Contains("<")) op = "<";
 				else if (constraint.Contains("=")) op = "=";
-				else return true; // Can't parse, assume valid
+				else return true;
 
 				var parts = constraint.Split(new[] { op }, StringSplitOptions.None);
-				if (parts.Length != 2) return true; // Can't parse
+				if (parts.Length != 2) return true;
 
 				var left = parts[0].Trim();
 				var right = parts[1].Trim();
 
-				// Check if left side is the property name
 				if (!left.Equals(propertyName, StringComparison.OrdinalIgnoreCase))
-					return true; // Not about this property
+					return true;
 
-				// Try to convert both sides to decimal for comparison
 				if (!TryConvertToDecimal(value, out decimal leftValue)) return true;
 				if (!TryConvertToDecimal(right, out decimal rightValue)) return true;
 
@@ -82,12 +77,10 @@ public class CheckConstraintValidator : IValidationRule
 				};
 			}
 
-			// If we can't parse it, assume it's valid (avoid false positives)
 			return true;
 		}
 		catch
 		{
-			// On any parsing error, assume valid
 			return true;
 		}
 	}

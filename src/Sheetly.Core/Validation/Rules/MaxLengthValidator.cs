@@ -9,7 +9,7 @@ public class MaxLengthValidator : IValidationRule
 	{
 		var result = new ValidationResult();
 
-		if (context.Schema == null) return result;
+		if (context.Schema is null) return result;
 
 		var entityType = entity.GetType();
 
@@ -18,7 +18,7 @@ public class MaxLengthValidator : IValidationRule
 			if (!column.MaxLength.HasValue) continue;
 
 			var property = entityType.GetProperty(column.PropertyName);
-			if (property == null) continue;
+			if (property is null) continue;
 
 			var value = property.GetValue(entity);
 
