@@ -51,7 +51,7 @@ public class GoogleSheetProvider : ISheetsProvider
 		return await request.ExecuteAsync();
 	}
 
-	public GoogleSheetProvider(string credentialsPath, string spreadsheetId)
+	public GoogleSheetProvider(string spreadsheetId, string credentialsPath)
 	{
 		_spreadsheetId = spreadsheetId;
 		using var stream = new FileStream(credentialsPath, FileMode.Open, FileAccess.Read);
@@ -222,15 +222,15 @@ public class GoogleSheetProvider : ISheetsProvider
 	/// Uses VALUES_UNRENDERED to get the raw number even when formulas are present.
 	/// 1 API call.
 	/// </summary>
-	public async Task<int> GetMaxIdAsync(string sheetName)
+	public async Task<long> GetMaxIdAsync(string sheetName)
 	{
 		var request = NextService.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!A2:A");
 		request.ValueRenderOption = SpreadsheetsResource.ValuesResource.GetRequest.ValueRenderOptionEnum.UNFORMATTEDVALUE;
 		var response = await ExecuteWithRetryAsync(request);
-		int max = 0;
+		long max = 0;
 		if (response.Values is not null)
 			foreach (var row in response.Values)
-				if (row.Count > 0 && int.TryParse(row[0]?.ToString(), out var id) && id > max)
+				if (row.Count > 0 && long.TryParse(row[0]?.ToString(), out var id) && id > max)
 					max = id;
 		return max;
 	}

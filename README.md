@@ -34,7 +34,7 @@ public class AppContext : SheetsContext
 
     protected override void OnConfiguring(SheetsOptions options)
     {
-        options.UseGoogleSheets("credentials.json", "your-spreadsheet-id");
+        options.UseGoogleSheets("your-spreadsheet-id", "credentials.json");
         // or: options.UseExcel("data.xlsx");
     }
     
@@ -163,7 +163,7 @@ dotnet tool install -g dotnet-sheetly
 ```csharp
 protected override void OnConfiguring(SheetsOptions options)
 {
-    options.UseGoogleSheets("credentials.json", "your-spreadsheet-id");
+    options.UseGoogleSheets("your-spreadsheet-id", "credentials.json");
 }
 ```
 
@@ -219,7 +219,7 @@ public class MyAppContext : SheetsContext
 
     protected override void OnConfiguring(SheetsOptions options)
     {
-        options.UseGoogleSheets("credentials.json", "your-spreadsheet-id");
+        options.UseGoogleSheets("your-spreadsheet-id", "credentials.json");
         // or: options.UseExcel("mydata.xlsx");
     }
 
@@ -316,7 +316,7 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 ```csharp
 // Parameterless constructor (classic)
 builder.Services.AddSheetsContext<MyAppContext>(options =>
-    options.UseGoogleSheets("credentials.json", "spreadsheet-id"));
+    options.UseGoogleSheets("spreadsheet-id", "credentials.json"));
 
 // Options constructor (EF Core-style)
 public class MyAppContext : SheetsContext
@@ -326,7 +326,7 @@ public class MyAppContext : SheetsContext
 }
 
 builder.Services.AddSheetsContext<MyAppContext>(options =>
-    options.UseGoogleSheets("credentials.json", "spreadsheet-id"));
+    options.UseGoogleSheets("spreadsheet-id", "credentials.json"));
 ```
 
 ### **AsNoTracking**
@@ -373,7 +373,7 @@ await context.SaveChangesAsync();
 // [{ "type": "service_account", ... }, { "type": "service_account", ... }]
 // Each API call rotates to the next credential (round-robin)
 // Effective limit: N accounts × 60 req/min = N×60 req/min
-options.UseGoogleSheets("credentials.json", "spreadsheet-id");
+options.UseGoogleSheets("spreadsheet-id", "credentials.json");
 ```
 
 ### **CancellationToken Support**

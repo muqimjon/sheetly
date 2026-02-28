@@ -10,7 +10,7 @@ public static class GoogleSheetsFactory
 		var connString = SheetsConnectionString.Parse(connectionString);
 		connString.Validate();
 
-		var provider = new GoogleSheetProvider(connString.CredentialsPath, connString.SpreadsheetId);
+		var provider = new GoogleSheetProvider(connString.SpreadsheetId, connString.CredentialsPath);
 		var migrationService = new GoogleMigrationService(provider);
 		var context = new T();
 		await context.InitializeAsync(provider, migrationService);
@@ -19,8 +19,8 @@ public static class GoogleSheetsFactory
 	}
 
 	public static async Task<T> CreateContextAsync<T>(
-		string credentialsPath,
-		string spreadsheetId
+		string spreadsheetId,
+		string credentialsPath
 	) where T : SheetsContext, new()
 	{
 		var connectionString = $"Provider=GoogleSheets;CredentialsPath={credentialsPath};SpreadsheetId={spreadsheetId}";

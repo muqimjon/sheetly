@@ -142,8 +142,8 @@ public sealed class ExcelSheetProvider : ISheetsProvider, IAsyncDisposable
 		EnsureWorkbook();
 		var ws = GetWorksheet(sheetName);
 
-		int maxId = GetMaxIdFromSheet(ws);
-		int nextId = maxId + 1;
+		long maxId = GetMaxIdFromSheet(ws);
+		long nextId = maxId + 1;
 
 		var newRow = row.ToList();
 		if (newRow.Count > 0)
@@ -154,14 +154,14 @@ public sealed class ExcelSheetProvider : ISheetsProvider, IAsyncDisposable
 			ws.Cell(nextRowNum, i + 1).Value = newRow[i]?.ToString() ?? "";
 
 		Save();
-		return Task.FromResult(nextId);
+		return Task.FromResult((int)nextId);
 	}
 
-	public Task<int> GetMaxIdAsync(string sheetName)
+	public Task<long> GetMaxIdAsync(string sheetName)
 	{
 		EnsureWorkbook();
 		if (!_workbook!.TryGetWorksheet(sheetName, out var ws))
-			return Task.FromResult(0);
+			return Task.FromResult(0L);
 
 		return Task.FromResult(GetMaxIdFromSheet(ws));
 	}
@@ -324,9 +324,9 @@ public sealed class ExcelSheetProvider : ISheetsProvider, IAsyncDisposable
 		return lastUsed is null ? 2 : lastUsed.RowNumber() + 1;
 	}
 
-	private static int GetMaxIdFromSheet(IXLWorksheet ws)
+	private static long GetMaxIdFromSheet(IXLWorksheet ws)
 	{
-		int max = 0;
+		long max = 0;
 		var rangeUsed = ws.RangeUsed();
 		if (rangeUsed is null) return max;
 
@@ -334,7 +334,7 @@ public sealed class ExcelSheetProvider : ISheetsProvider, IAsyncDisposable
 		for (int r = 2; r <= lastRow; r++)
 		{
 			var val = ws.Cell(r, 1).GetValue<string>();
-			if (int.TryParse(val, out var id) && id > max)
+			if (long.TryParse(val, out var id) && id > max)
 				max = id;
 		}
 		return max;

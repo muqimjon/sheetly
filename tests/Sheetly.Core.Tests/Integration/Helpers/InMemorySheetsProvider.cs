@@ -97,12 +97,12 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 		return Task.CompletedTask;
 	}
 
-	public Task<int> GetMaxIdAsync(string sheetName)
+	public Task<long> GetMaxIdAsync(string sheetName)
 	{
-		int max = 0;
+		long max = 0;
 		if (_sheets.TryGetValue(sheetName, out var rows))
 			for (int i = 1; i < rows.Count; i++)
-				if (rows[i].Count > 0 && int.TryParse(rows[i][0]?.ToString(), out var id) && id > max)
+				if (rows[i].Count > 0 && long.TryParse(rows[i][0]?.ToString(), out var id) && id > max)
 					max = id;
 		return Task.FromResult(max);
 	}

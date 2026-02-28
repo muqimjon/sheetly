@@ -20,7 +20,7 @@ public partial class AppDbModelSnapshot : MigrationSnapshot
         {
             ModelHash = "B9emMa1A++cOQMHt5sY3NkJRTAb1yP/Ei7sKWFlwVDw=",
             Version = "1.0.0",
-            LastUpdated = DateTime.Parse("2026-02-28T07:25:48.1042270Z")
+            LastUpdated = DateTime.Parse("2026-02-28T07:44:24.5479128Z")
         };
 
         // Category

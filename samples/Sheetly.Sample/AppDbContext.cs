@@ -1,5 +1,4 @@
-﻿using Microsoft.Extensions.Configuration;
-using Sheetly.Core;
+﻿using Sheetly.Core;
 using Sheetly.Core.Configuration;
 using Sheetly.Excel;
 using Sheetly.Google;
@@ -14,18 +13,8 @@ public class AppDbContext : SheetsContext
 
 	protected override void OnConfiguring(SheetsOptions options)
 	{
-		var config = new ConfigurationBuilder()
-			.SetBasePath(Directory.GetCurrentDirectory())
-			.AddJsonFile("appsettings.json")
-			.Build();
-
-		var connectionString = config.GetConnectionString("DefaultConnection")
-			?? throw new Exception("Connection string 'DefaultConnection' not found.");
-
-		if (connectionString.Contains("Provider=Excel", StringComparison.OrdinalIgnoreCase))
-			options.UseExcel(ExtractFilePath(connectionString));
-		else
-			options.UseGoogleSheets(connectionString);
+			//options.UseExcel("C:/Users/user/OneDrive/Desk/sheetly-test.xlsx");
+			options.UseGoogleSheets("1bNZnlJJ81VLbM5VeWoy9uCq4Ynz2bkAXaJlFJAYy_Sc", "credentials.json");
 	}
 
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -52,16 +41,5 @@ public class AppDbContext : SheetsContext
 			e.Property(p => p.Description)
 				.HasMaxLength(500);
 		});
-	}
-
-	private static string ExtractFilePath(string connectionString)
-	{
-		foreach (var part in connectionString.Split(';'))
-		{
-			var kv = part.Split('=', 2);
-			if (kv.Length == 2 && kv[0].Trim().Equals("FilePath", StringComparison.OrdinalIgnoreCase))
-				return kv[1].Trim();
-		}
-		throw new Exception("FilePath not found in Excel connection string.");
 	}
 }
