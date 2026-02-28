@@ -6,29 +6,15 @@ using System.Reflection;
 
 namespace Sheetly.Core.Infrastructure;
 
-public class DatabaseFacade
+public class DatabaseFacade(ISheetsProvider provider, IMigrationService? migrationService, Type contextType)
 {
-	private readonly ISheetsProvider _provider;
-	private readonly IMigrationService? _migrationService;
-	private readonly Type _contextType;
-
-	public DatabaseFacade(ISheetsProvider provider, IMigrationService? migrationService, Type contextType)
-	{
-		_provider = provider;
-		_migrationService = migrationService;
-		_contextType = contextType;
-	}
-
-	/// <summary>
-	/// Applies all pending migrations.
-	/// </summary>
 	public async Task MigrateAsync()
 	{
-		if (_migrationService is null)
+		if (migrationService is null)
 			throw new InvalidOperationException("MigrationService is not configured. Ensure UseGoogleSheets is called in OnConfiguring.");
 
-		var assembly = _contextType.Assembly;
-		var applied = await _migrationService.GetAppliedMigrationsAsync();
+		var assembly = contextType.Assembly;
+		var applied = await migrationService.GetAppliedMigrationsAsync();
 
 		var migrationTypes = assembly.GetTypes()
 			.Where(t => t.IsSubclassOf(typeof(Migrations.Migration)) && !t.IsAbstract)
@@ -54,16 +40,16 @@ public class DatabaseFacade
 			var operations = builder.GetOperations();
 
 			EnrichOperations(operations, snapshot);
-			await _migrationService.ApplyMigrationAsync(operations, m.Attr!.Id);
+			await migrationService.ApplyMigrationAsync(operations, m.Attr!.Id);
 		}
 	}
 
 	public async Task<List<string>> GetPendingMigrationsAsync()
 	{
-		if (_migrationService is null) return [];
+		if (migrationService is null) return [];
 
-		var assembly = _contextType.Assembly;
-		var applied = await _migrationService.GetAppliedMigrationsAsync();
+		var assembly = contextType.Assembly;
+		var applied = await migrationService.GetAppliedMigrationsAsync();
 
 		return assembly.GetTypes()
 			.Where(t => t.IsSubclassOf(typeof(Migrations.Migration)) && !t.IsAbstract)
@@ -76,7 +62,7 @@ public class DatabaseFacade
 
 	public async Task DropDatabaseAsync()
 	{
-		await _provider.DropDatabaseAsync();
+		await provider.DropDatabaseAsync();
 	}
 
 	private static void EnrichOperations(List<MigrationOperation> operations, MigrationSnapshot? snapshot)

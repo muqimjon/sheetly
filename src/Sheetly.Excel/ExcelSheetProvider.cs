@@ -7,15 +7,10 @@ namespace Sheetly.Excel;
 /// ISheetsProvider implementation backed by a local .xlsx file via ClosedXML.
 /// All operations are synchronous file I/O wrapped in Task for API compatibility.
 /// </summary>
-public sealed class ExcelSheetProvider : ISheetsProvider, IAsyncDisposable
+public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyncDisposable
 {
-	private readonly string _filePath;
+	private readonly string _filePath = Path.GetFullPath(filePath);
 	private XLWorkbook? _workbook;
-
-	public ExcelSheetProvider(string filePath)
-	{
-		_filePath = Path.GetFullPath(filePath);
-	}
 
 	public Task InitializeAsync()
 	{
