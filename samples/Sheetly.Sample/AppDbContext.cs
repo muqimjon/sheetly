@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Sheetly.Core;
 using Sheetly.Core.Configuration;
+using Sheetly.Excel;
 using Sheetly.Google;
 using Sheetly.Sample.Models;
 
@@ -18,12 +19,13 @@ public class AppDbContext : SheetsContext
 			.AddJsonFile("appsettings.json")
 			.Build();
 
-		var connectionString = config.GetConnectionString("DefaultConnection");
+		var connectionString = config.GetConnectionString("DefaultConnection")
+			?? throw new Exception("Connection string 'DefaultConnection' not found.");
 
-		if (string.IsNullOrEmpty(connectionString))
-			throw new Exception("Connection string 'DefaultConnection' not found.");
-
-		options.UseGoogleSheets(connectionString);
+		if (connectionString.Contains("Provider=Excel", StringComparison.OrdinalIgnoreCase))
+			options.UseExcel(ExtractFilePath(connectionString));
+		else
+			options.UseGoogleSheets(connectionString);
 	}
 
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -46,9 +48,20 @@ public class AppDbContext : SheetsContext
 				.HasMaxLength(200);
 			e.Property(p => p.Price)
 				.IsRequired()
-				.HasRange(0, 1000000); // Price must be between 0 and 1,000,000
+				.HasRange(0, 1000000);
 			e.Property(p => p.Description)
-				.HasMaxLength(500); // Optional description, max 500 chars
+				.HasMaxLength(500);
 		});
+	}
+
+	private static string ExtractFilePath(string connectionString)
+	{
+		foreach (var part in connectionString.Split(';'))
+		{
+			var kv = part.Split('=', 2);
+			if (kv.Length == 2 && kv[0].Trim().Equals("FilePath", StringComparison.OrdinalIgnoreCase))
+				return kv[1].Trim();
+		}
+		throw new Exception("FilePath not found in Excel connection string.");
 	}
 }

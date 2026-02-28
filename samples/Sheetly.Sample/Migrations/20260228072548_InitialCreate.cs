@@ -1,25 +1,24 @@
 using Sheetly.Core.Migrations;
 using Sheetly.Core.Migrations.Operations;
 
-namespace Sheetly.Test.Contexts.Migrations;
+namespace Sheetly.Sample.Migrations;
 
-[Migration("20260227231549_InitialCreate")]
+[Migration("20260228072548_InitialCreate")]
 public partial class InitialCreate : Migration
 {
     public override void Up(MigrationBuilder builder)
     {
-        // ClassName: Category
         builder.CreateTable("Categories", table => table
-            .Column<int>("Id", c => c.IsPrimaryKey().IsUnique())
+            .Column<long>("Id", c => c.IsPrimaryKey().IsUnique())
             .Column<string>("Name", c => c.IsRequired().HasMaxLength(100))
         );
 
-        // ClassName: Product
         builder.CreateTable("Products", table => table
             .Column<int>("Id", c => c.IsPrimaryKey().IsUnique())
-            .Column<string>("Name", c => c.IsRequired().HasMaxLength(200))
+            .Column<string>("Title", c => c.IsRequired().HasMaxLength(200))
             .Column<decimal>("Price", c => c.IsRequired())
-            .Column<string>("Description")
+            .Column<string>("Description", c => c.HasMaxLength(500))
+            .Column<int>("Stock", c => c.IsRequired())
             .Column<int>("CategoryId", c => c.IsRequired().IsForeignKey("Categories"))
         );
 
