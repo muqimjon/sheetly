@@ -143,27 +143,25 @@ public sealed class ExcelSheetProvider : ISheetsProvider, IAsyncDisposable
 		for (int i = 1; i < schemaRows.Count; i++)
 		{
 			var row = schemaRows[i];
-			if (row.Count > 7 &&
-				row[1]?.ToString() == tableName &&
-				row[7]?.ToString() == "True")
+			if (row.Count <= 7) continue;
+			if (row[1]?.ToString() != tableName) continue;
+			if (!bool.TryParse(row[7]?.ToString(), out var isPk) || !isPk) continue;
+
+			long currentId = 0;
+			if (row.Count > 28)
+				long.TryParse(row[28]?.ToString(), out currentId);
+
+			if (currentId == 0)
 			{
-				long currentId = 0;
-				if (row.Count > 28)
-					long.TryParse(row[28]?.ToString(), out currentId);
-
-				if (currentId == 0)
-				{
-					var dataRows = await GetAllRowsAsync(tableName);
-					for (int j = 1; j < dataRows.Count; j++)
-						if (dataRows[j].Count > 0 && long.TryParse(dataRows[j][0]?.ToString(), out var did) && did > currentId)
-							currentId = did;
-				}
-
-				long nextId = currentId + 1;
-				int spreadsheetRow = i + 1;
-				await UpdateValueAsync("__SheetlySchema__", $"AC{spreadsheetRow}", currentId + count);
-				return nextId;
+				var dataRows = await GetAllRowsAsync(tableName);
+				for (int j = 1; j < dataRows.Count; j++)
+					if (dataRows[j].Count > 0 && long.TryParse(dataRows[j][0]?.ToString(), out var did) && did > currentId)
+						currentId = did;
 			}
+
+			long nextId = currentId + 1;
+			await UpdateValueAsync("__SheetlySchema__", $"AC{i + 1}", currentId + count);
+			return nextId;
 		}
 		return 1;
 	}

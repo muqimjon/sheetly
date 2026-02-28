@@ -10,16 +10,17 @@ await context.InitializeAsync();
 Console.WriteLine("✅ Context initialized successfully!");
 Console.WriteLine();
 
-//context.Products.Add(new Product
-//{
-//	Title = "Sample Product",
-//	Price = 19.99m,
-//	Description = "This is a sample product added to the Excel sheet."
-//});
+context.Products.Add(new Product
+{
+	Title = "Sample Product",
+	Price = 19.99m,
+	Description = "This is a sample product added to the Excel sheet.",
+	Stock = 100
+});
 
-var firstProduct = await context.Products.FirstOrDefaultAsync();
-if (firstProduct is not null)
-	context.Products.Remove(firstProduct);
+//var firstProduct = await context.Products.FirstOrDefaultAsync();
+//if (firstProduct is not null)
+//	context.Products.Remove(firstProduct);
 
 await context.SaveChangesAsync();
 Console.WriteLine("📋 Categories:");
