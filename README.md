@@ -6,6 +6,7 @@
 [![Sheetly.DependencyInjection](https://img.shields.io/nuget/v/Sheetly.DependencyInjection.svg?label=Sheetly.DependencyInjection&color=2f7f73)](https://www.nuget.org/packages/Sheetly.DependencyInjection/)
 [![dotnet-sheetly](https://img.shields.io/nuget/v/dotnet-sheetly.svg?label=dotnet-sheetly&color=2f7f73)](https://www.nuget.org/packages/dotnet-sheetly/)
 [![License-MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Discussions](https://img.shields.io/badge/GitHub-Discussions-2f7f73?logo=github)](https://github.com/muqimjon/sheetly/discussions)
 
 ---
 
@@ -523,6 +524,14 @@ Define models → Create migrations → Apply to Sheets → Use context
      ↓                ↓                    ↓               ↓
   C# classes    .cs migration files   Google Sheets    CRUD + queries
 ```
+
+---
+
+## 💬 Questions & Community
+
+Have a question, an idea, or something you built with Sheetly? Come say hi in
+[GitHub Discussions](https://github.com/muqimjon/sheetly/discussions). Found a bug?
+[Open an issue](https://github.com/muqimjon/sheetly/issues).
 
 ---
 
