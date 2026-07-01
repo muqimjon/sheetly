@@ -1,0 +1,65 @@
+name: Release single package
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 'Which package to release (version is read from its .csproj)'
+        required: true
+        type: choice
+        options:
+          - Sheetly.Core
+          - Sheetly.Google
+          - Sheetly.Excel
+          - Sheetly.DependencyInjection
+          - dotnet-sheetly
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+
+      - name: Resolve project and version
+        id: info
+        run: |
+          case "${{ github.event.inputs.package }}" in
+            Sheetly.Core)                 PROJ=src/Sheetly.Core/Sheetly.Core.csproj ;;
+            Sheetly.Google)               PROJ=src/Sheetly.Google/Sheetly.Google.csproj ;;
+            Sheetly.Excel)                PROJ=src/Sheetly.Excel/Sheetly.Excel.csproj ;;
+            Sheetly.DependencyInjection)  PROJ=src/Sheetly.DependencyInjection/Sheetly.DependencyInjection.csproj ;;
+            dotnet-sheetly)               PROJ=src/Sheetly.CLI/Sheetly.CLI.csproj ;;
+          esac
+          VERSION=$(grep -m1 '<Version>' "$PROJ" | sed 's/.*<Version>\(.*\)<\/Version>.*/\1/' | tr -d '[:space:]')
+          echo "proj=$PROJ" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Releasing ${{ github.event.inputs.package }} v$VERSION from $PROJ"
+
+      - name: Build
+        run: dotnet build Sheetly.sln -c Release --no-incremental
+
+      - name: Test
+        run: dotnet test tests/Sheetly.Core.Tests/ -c Release --no-build --verbosity normal
+
+      - name: Pack
+        run: dotnet pack ${{ steps.info.outputs.proj }} -c Release --no-build -o ./nupkg
+
+      - name: Push to NuGet
+        run: |
+          dotnet nuget push "nupkg/${{ github.event.inputs.package }}.${{ steps.info.outputs.version }}.nupkg" \
+            -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ github.event.inputs.package }}-v${{ steps.info.outputs.version }}
+          name: ${{ github.event.inputs.package }} v${{ steps.info.outputs.version }}
+          artifacts: nupkg/${{ github.event.inputs.package }}.${{ steps.info.outputs.version }}.nupkg
+          token: ${{ secrets.GITHUB_TOKEN }}
+          skipIfReleaseExists: true
