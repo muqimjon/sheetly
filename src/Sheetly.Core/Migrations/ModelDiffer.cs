@@ -102,7 +102,11 @@ public class ModelDiffer
 						ClrType = column.DataType != prevCol.DataType ? GetClrType(column.DataType) : null,
 						IsNullable = column.IsNullable != prevCol.IsNullable ? column.IsNullable : null,
 						MaxLength = column.MaxLength != prevCol.MaxLength ? column.MaxLength : null,
-						DefaultValue = !Equals(column.DefaultValue, prevCol.DefaultValue) ? column.DefaultValue : null
+						DefaultValue = !Equals(column.DefaultValue, prevCol.DefaultValue) ? column.DefaultValue : null,
+						IsPrimaryKey = column.IsPrimaryKey != prevCol.IsPrimaryKey ? column.IsPrimaryKey : null,
+						IsAutoIncrement = column.IsAutoIncrement != prevCol.IsAutoIncrement ? column.IsAutoIncrement : null,
+						IsForeignKey = column.IsForeignKey != prevCol.IsForeignKey ? column.IsForeignKey : null,
+						ForeignKeyTable = column.ForeignKeyTable != prevCol.ForeignKeyTable ? column.ForeignKeyTable : null
 					});
 				}
 			}
@@ -128,7 +132,11 @@ public class ModelDiffer
 		return previous.DataType != current.DataType ||
 			   previous.IsNullable != current.IsNullable ||
 			   previous.MaxLength != current.MaxLength ||
-			   !Equals(previous.DefaultValue, current.DefaultValue);
+			   !Equals(previous.DefaultValue, current.DefaultValue) ||
+			   previous.IsPrimaryKey != current.IsPrimaryKey ||
+			   previous.IsAutoIncrement != current.IsAutoIncrement ||
+			   previous.IsForeignKey != current.IsForeignKey ||
+			   previous.ForeignKeyTable != current.ForeignKeyTable;
 	}
 
 	private static Type GetClrType(string typeName)

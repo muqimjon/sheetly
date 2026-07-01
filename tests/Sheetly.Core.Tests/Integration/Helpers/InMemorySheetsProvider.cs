@@ -36,6 +36,16 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 		return Task.CompletedTask;
 	}
 
+	public Task RenameSheetAsync(string oldName, string newName)
+	{
+		if (_sheets.TryGetValue(oldName, out var rows))
+		{
+			_sheets.Remove(oldName);
+			_sheets[newName] = rows;
+		}
+		return Task.CompletedTask;
+	}
+
 	public Task DeleteSheetAsync(string sheetName)
 	{
 		_sheets.Remove(sheetName);

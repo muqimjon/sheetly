@@ -12,7 +12,25 @@ public class PrimaryKeyValidator : IValidationRule
 		if (context.Schema is null) return result;
 
 		var entityType = entity.GetType();
-		var pkColumn = context.Schema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
+		var pkColumns = context.Schema.Columns.Where(c => c.IsPrimaryKey).ToList();
+
+		if (pkColumns.Count > 1)
+		{
+			foreach (var pk in pkColumns)
+			{
+				var prop = entityType.GetProperty(pk.PropertyName);
+				var val = prop?.GetValue(entity);
+				if (val is null || (val is string str && string.IsNullOrEmpty(str)))
+					result.AddError(new ValidationError(pk.PropertyName,
+						$"Composite primary key part '{pk.PropertyName}' is required.")
+					{
+						EntityType = entityType.Name
+					});
+			}
+			return result;
+		}
+
+		var pkColumn = pkColumns.FirstOrDefault();
 
 		if (pkColumn is null) return result;
 

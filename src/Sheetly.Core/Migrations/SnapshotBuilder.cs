@@ -2,9 +2,6 @@ using Sheetly.Core.Migration;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Reflection;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
 
 namespace Sheetly.Core.Migrations;
 
@@ -44,21 +41,29 @@ public static class SnapshotBuilder
 				PropertyBuilder? propConfig = null;
 				entityMetadata?.Properties.TryGetValue(prop.Name, out propConfig);
 
+				bool hasConfiguredKeys = (entityMetadata?.PrimaryKeys.Count ?? 0) > 0;
+				bool isPk = hasConfiguredKeys ? entityMetadata!.PrimaryKeys.Contains(prop.Name) : IsPrimaryKey(prop);
+				bool isComposite = (entityMetadata?.PrimaryKeys.Count ?? 0) > 1;
+				bool isAuto = isPk && IsNumericType(prop.PropertyType) && !isComposite;
+
 				var column = new ColumnSchema
 				{
 					Name = propConfig?.ColumnName ?? GetColumnName(prop),
 					PropertyName = prop.Name,
 					DataType = GetSimpleTypeName(prop.PropertyType),
-					IsPrimaryKey = IsPrimaryKey(prop),
-					IsAutoIncrement = IsPrimaryKey(prop) && IsNumericType(prop.PropertyType),
+					IsPrimaryKey = isPk,
+					IsAutoIncrement = isAuto,
 
-					IsNullable = !IsPrimaryKey(prop) && IsPropertyNullable(prop) && !prop.IsDefined(typeof(RequiredAttribute)) && !(propConfig?.IsRequiredValue ?? false),
-					IsRequired = IsPrimaryKey(prop) || prop.IsDefined(typeof(RequiredAttribute)) || (propConfig?.IsRequiredValue ?? false),
+					IsNullable = !isPk && IsPropertyNullable(prop) && !prop.IsDefined(typeof(RequiredAttribute)) && !(propConfig?.IsRequiredValue ?? false),
+					IsRequired = isPk || prop.IsDefined(typeof(RequiredAttribute)) || (propConfig?.IsRequiredValue ?? false),
 					MaxLength = propConfig?.MaxLength ?? prop.GetCustomAttribute<MaxLengthAttribute>()?.Length,
 					MinLength = propConfig?.MinLength,
 					MinValue = propConfig?.MinValue,
 					MaxValue = propConfig?.MaxValue,
-					DefaultValue = propConfig?.DefaultValue
+					DefaultValue = propConfig?.DefaultValue,
+					IsUnique = propConfig?.IsUniqueValue ?? false,
+					IsConcurrencyToken = propConfig?.IsConcurrencyTokenValue ?? false,
+					IsRowVersion = propConfig?.IsRowVersionValue ?? false
 				};
 
 				if (prop.Name.EndsWith("Id", StringComparison.OrdinalIgnoreCase) && !column.IsPrimaryKey)
@@ -73,6 +78,8 @@ public static class SnapshotBuilder
 						EntityMetadata? relatedMetadata = null;
 						modelMetadata?.TryGetValue(navProp.PropertyType, out relatedMetadata);
 						column.ForeignKeyTable = relatedMetadata?.SheetName ?? GetTableName(navProp.PropertyType);
+						if (propConfig?.OnDeleteAction is { } onDelete)
+							column.OnDelete = onDelete;
 					}
 				}
 
@@ -82,7 +89,7 @@ public static class SnapshotBuilder
 			snapshot.Entities[tableName] = schema;
 		}
 
-		snapshot.ModelHash = CalculateHash(snapshot.Entities);
+		snapshot.ModelHash = ModelHasher.Calculate(snapshot.Entities);
 		snapshot.LastUpdated = DateTime.UtcNow;
 		return snapshot;
 	}
@@ -154,35 +161,4 @@ public static class SnapshotBuilder
 		return Nullable.GetUnderlyingType(prop.PropertyType) is not null || !prop.PropertyType.IsValueType;
 	}
 
-	/// <summary>
-	/// Hash only structural fields — table/column names, data types, PK/FK relationships.
-	/// Validation-only constraints (MaxLength, MinValue, IsRequired, etc.) don't change
-	/// the Sheets schema, so they don't trigger a new migration.
-	/// </summary>
-	private static string CalculateHash(Dictionary<string, EntitySchema> entities)
-	{
-		var structural = entities
-			.OrderBy(e => e.Key)
-			.ToDictionary(
-				e => e.Key,
-				e => new
-				{
-					e.Value.TableName,
-					Columns = e.Value.Columns.Select(c => new
-					{
-						c.Name,
-						c.DataType,
-						c.IsPrimaryKey,
-						c.IsAutoIncrement,
-						c.IsForeignKey,
-						c.ForeignKeyTable,
-						c.ForeignKeyColumn
-					}).ToList()
-				});
-
-		var options = new JsonSerializerOptions { WriteIndented = false };
-		var json = JsonSerializer.Serialize(structural, options);
-		var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(json));
-		return Convert.ToBase64String(bytes);
-	}
 }

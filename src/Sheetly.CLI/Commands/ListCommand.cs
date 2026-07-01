@@ -8,12 +8,10 @@ namespace Sheetly.CLI.Commands;
 public class ListCommand : Command
 {
 	private readonly Option<string?> _projectOption = new("--project", ["-p"]) { Description = "Path to project" };
-	private readonly Option<bool> _noBuildOption = new("--no-build", ["-n"]) { Description = "Do not build project" };
 
 	public ListCommand() : base("list", "List all migrations")
 	{
 		this.Add(_projectOption);
-		this.Add(_noBuildOption);
 
 		this.SetAction(async (parseResult, ct) =>
 		{

@@ -1,4 +1,6 @@
-﻿namespace Sheetly.Core;
+﻿using Sheetly.Core.Migration;
+
+namespace Sheetly.Core;
 
 public class PropertyBuilder(string name)
 {
@@ -10,6 +12,10 @@ public class PropertyBuilder(string name)
 	public decimal? MinValue { get; private set; }
 	public decimal? MaxValue { get; private set; }
 	public object? DefaultValue { get; private set; }
+	public bool IsUniqueValue { get; private set; }
+	public ForeignKeyAction? OnDeleteAction { get; private set; }
+	public bool IsConcurrencyTokenValue { get; private set; }
+	public bool IsRowVersionValue { get; private set; }
 
 	public PropertyBuilder HasColumnName(string name)
 	{
@@ -51,6 +57,31 @@ public class PropertyBuilder(string name)
 	public PropertyBuilder HasDefaultValue(object value)
 	{
 		DefaultValue = value;
+		return this;
+	}
+
+	public PropertyBuilder IsUnique(bool unique = true)
+	{
+		IsUniqueValue = unique;
+		return this;
+	}
+
+	public PropertyBuilder OnDelete(ForeignKeyAction action)
+	{
+		OnDeleteAction = action;
+		return this;
+	}
+
+	public PropertyBuilder IsConcurrencyToken(bool isConcurrencyToken = true)
+	{
+		IsConcurrencyTokenValue = isConcurrencyToken;
+		return this;
+	}
+
+	public PropertyBuilder IsRowVersion(bool isRowVersion = true)
+	{
+		IsRowVersionValue = isRowVersion;
+		IsConcurrencyTokenValue = isRowVersion || IsConcurrencyTokenValue;
 		return this;
 	}
 }

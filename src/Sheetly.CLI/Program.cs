@@ -16,6 +16,7 @@ migrationsCommand.Subcommands.Add(new AddCommand());
 migrationsCommand.Subcommands.Add(new RemoveCommand());
 migrationsCommand.Subcommands.Add(new ListCommand());
 migrationsCommand.Subcommands.Add(new ScriptCommand());
+migrationsCommand.Subcommands.Add(new RollbackCommand());
 
 databaseCommand.Subcommands.Add(new UpdateCommand());
 databaseCommand.Subcommands.Add(new DropCommand());

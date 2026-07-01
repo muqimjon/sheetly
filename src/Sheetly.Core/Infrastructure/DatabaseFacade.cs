@@ -44,6 +44,43 @@ public class DatabaseFacade(ISheetsProvider provider, IMigrationService? migrati
 		}
 	}
 
+	/// <summary>
+	/// Reverts the most recently applied migration: runs its Down() against the store
+	/// and removes it from the migration history. Returns the rolled-back migration id, or null.
+	/// </summary>
+	public async Task<string?> RollbackLastAsync()
+	{
+		if (migrationService is null)
+			throw new InvalidOperationException("MigrationService is not configured. Ensure UseGoogleSheets or UseExcel is called in OnConfiguring.");
+
+		var applied = (await migrationService.GetAppliedMigrationsAsync()).OrderBy(id => id).ToList();
+		if (applied.Count == 0) return null;
+
+		var lastId = applied[^1];
+		var assembly = contextType.Assembly;
+
+		var migrationType = assembly.GetTypes()
+			.Where(t => t.IsSubclassOf(typeof(Migrations.Migration)) && !t.IsAbstract)
+			.FirstOrDefault(t => t.GetCustomAttribute<MigrationAttribute>()?.Id == lastId)
+			?? throw new InvalidOperationException(
+				$"Migration '{lastId}' is applied but its class was not found in the assembly. Cannot roll back.");
+
+		var snapshotType = assembly.GetTypes()
+			.FirstOrDefault(t => t.Name.EndsWith("ModelSnapshot") && t.IsSubclassOf(typeof(MigrationSnapshot)));
+		var snapshot = snapshotType is not null
+			? (MigrationSnapshot?)Activator.CreateInstance(snapshotType)
+			: null;
+
+		var instance = (Migrations.Migration)Activator.CreateInstance(migrationType)!;
+		var builder = new Migrations.MigrationBuilder();
+		instance.Down(builder);
+		var operations = builder.GetOperations();
+
+		EnrichOperations(operations, snapshot);
+		await migrationService.RevertMigrationAsync(operations, lastId);
+		return lastId;
+	}
+
 	public async Task<List<string>> GetPendingMigrationsAsync()
 	{
 		if (migrationService is null) return [];
@@ -65,6 +102,12 @@ public class DatabaseFacade(ISheetsProvider provider, IMigrationService? migrati
 		await provider.DropDatabaseAsync();
 	}
 
+	/// <summary>
+	/// Reads the schema currently applied to the store from <c>__SheetlySchema__</c>.
+	/// Useful for inspection or detecting drift between the code model and the spreadsheet.
+	/// </summary>
+	public Task<MigrationSnapshot> GetAppliedSchemaAsync() => SchemaReader.ReadAsync(provider);
+
 	private static void EnrichOperations(List<MigrationOperation> operations, MigrationSnapshot? snapshot)
 	{
 		if (snapshot is null) return;
@@ -77,9 +120,7 @@ public class DatabaseFacade(ISheetsProvider provider, IMigrationService? migrati
 			foreach (var col in op.Columns)
 			{
 				var snapshotCol = entity.Columns.FirstOrDefault(c => c.Name == col.Name);
-				if (snapshotCol is null) continue;
-				col.IsAutoIncrement = snapshotCol.IsAutoIncrement;
-				if (snapshotCol.IsPrimaryKey) col.IsUnique = true;
+				if (snapshotCol is not null) EnrichColumn(col, snapshotCol, entity.ClassName);
 			}
 		}
 
@@ -87,10 +128,36 @@ public class DatabaseFacade(ISheetsProvider provider, IMigrationService? migrati
 		{
 			if (!snapshot.Entities.TryGetValue(op.Table, out var entity)) continue;
 			var snapshotCol = entity.Columns.FirstOrDefault(c => c.Name == op.Name);
-			if (snapshotCol is null) continue;
-			op.IsAutoIncrement = snapshotCol.IsAutoIncrement;
-			op.ClassName = entity.ClassName;
-			if (snapshotCol.IsPrimaryKey) op.IsUnique = true;
+			if (snapshotCol is not null) EnrichColumn(op, snapshotCol, entity.ClassName);
+		}
+	}
+
+	/// <summary>
+	/// Copies the full constraint/relationship metadata from the model snapshot onto the
+	/// migration operation so the persisted __SheetlySchema__ faithfully mirrors the model
+	/// (OnDelete, ranges, lengths, precision, concurrency — not just type/PK/FK).
+	/// </summary>
+	private static void EnrichColumn(AddColumnOperation col, ColumnSchema snapshotCol, string className)
+	{
+		col.ClassName = className;
+		col.IsAutoIncrement = snapshotCol.IsAutoIncrement;
+		col.IsUnique = snapshotCol.IsUnique || snapshotCol.IsPrimaryKey;
+		col.OnDelete = snapshotCol.OnDelete;
+		col.OnUpdate = snapshotCol.OnUpdate;
+		col.MinLength ??= snapshotCol.MinLength;
+		col.MaxLength ??= snapshotCol.MaxLength;
+		col.MinValue ??= snapshotCol.MinValue;
+		col.MaxValue ??= snapshotCol.MaxValue;
+		col.Precision ??= snapshotCol.Precision;
+		col.Scale ??= snapshotCol.Scale;
+		col.CheckConstraint ??= snapshotCol.CheckConstraint;
+		col.Comment ??= snapshotCol.Comment;
+		col.IsConcurrencyToken = snapshotCol.IsConcurrencyToken;
+		col.IsRowVersion = snapshotCol.IsRowVersion;
+		if (snapshotCol.IsForeignKey && !string.IsNullOrEmpty(snapshotCol.ForeignKeyTable))
+		{
+			col.ForeignKeyTable = snapshotCol.ForeignKeyTable;
+			col.ForeignKeyColumn = snapshotCol.ForeignKeyColumn ?? col.ForeignKeyColumn;
 		}
 	}
 }

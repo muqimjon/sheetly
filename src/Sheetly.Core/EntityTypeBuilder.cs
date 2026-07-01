@@ -12,7 +12,24 @@ public class EntityTypeBuilder<T> : EntityMetadata where T : class
 
 	public EntityTypeBuilder<T> HasKey(Expression<Func<T, object>> keyExpression)
 	{
-		PrimaryKey = GetPropertyName(keyExpression);
+		PrimaryKeys.Clear();
+		var body = keyExpression.Body;
+		if (body is UnaryExpression unary) body = unary.Operand;
+
+		if (body is NewExpression composite)
+		{
+			foreach (var arg in composite.Arguments)
+				if (arg is MemberExpression m) PrimaryKeys.Add(m.Member.Name);
+		}
+		else if (body is MemberExpression member)
+		{
+			PrimaryKeys.Add(member.Member.Name);
+		}
+		else
+		{
+			throw new ArgumentException("Invalid key expression. Use e => e.Id or e => new { e.A, e.B }.");
+		}
+
 		return this;
 	}
 

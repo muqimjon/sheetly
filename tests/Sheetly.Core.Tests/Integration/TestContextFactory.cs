@@ -43,11 +43,23 @@ public static class TestContextFactory
 		await provider.CreateSheetAsync("Categories", new[] { "Id", "Name" });
 		await provider.CreateSheetAsync("Products",
 			new[] { "Id", "Title", "Price", "Description", "Stock", "CategoryId" });
+		await provider.CreateSheetAsync("Orders",
+			new[] { "Id", "Customer", "Status", "Total" });
+		await provider.CreateSheetAsync("Users",
+			new[] { "Username", "Email" });
+		await provider.CreateSheetAsync("Departments", new[] { "Id", "Name" });
+		await provider.CreateSheetAsync("Employees", new[] { "Id", "Name", "DepartmentId" });
+		await provider.CreateSheetAsync("Documents", new[] { "Id", "Title", "Version" });
+		await provider.CreateSheetAsync("OrderLines", new[] { "OrderId", "LineNo", "Product", "Quantity" });
 
 		// Create __SheetlySchema__ with a PK-tracking row for each entity
 		await provider.CreateSheetAsync("__SheetlySchema__", SchemaHeaders);
 		await AppendSchemaRowAsync(provider, "Category", "Categories", "Id");
 		await AppendSchemaRowAsync(provider, "Product", "Products", "Id");
+		await AppendSchemaRowAsync(provider, "Order", "Orders", "Id");
+		await AppendSchemaRowAsync(provider, "Department", "Departments", "Id");
+		await AppendSchemaRowAsync(provider, "Employee", "Employees", "Id");
+		await AppendSchemaRowAsync(provider, "Document", "Documents", "Id");
 	}
 
 	/// <summary>

@@ -9,4 +9,5 @@ public interface IMigrationService
 {
 	Task<List<string>> GetAppliedMigrationsAsync();
 	Task ApplyMigrationAsync(List<MigrationOperation> operations, string migrationId);
+	Task RevertMigrationAsync(List<MigrationOperation> downOperations, string migrationId);
 }

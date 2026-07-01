@@ -12,6 +12,10 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 	private readonly string _filePath = Path.GetFullPath(filePath);
 	private XLWorkbook? _workbook;
 
+	// Serializes id generation per file across all contexts in this process.
+	// Cross-process access to the same .xlsx is not supported (no atomic increment).
+	private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _idLocks = new();
+
 	public Task InitializeAsync()
 	{
 		_workbook = File.Exists(_filePath)
@@ -134,31 +138,40 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 
 	public async Task<long> GetAndIncrementIdAsync(string tableName, int count = 1)
 	{
-		var schemaRows = await GetAllRowsAsync("__SheetlySchema__");
-		for (int i = 1; i < schemaRows.Count; i++)
+		var gate = _idLocks.GetOrAdd(_filePath, _ => new SemaphoreSlim(1, 1));
+		await gate.WaitAsync();
+		try
 		{
-			var row = schemaRows[i];
-			if (row.Count <= 7) continue;
-			if (row[1]?.ToString() != tableName) continue;
-			if (!bool.TryParse(row[7]?.ToString(), out var isPk) || !isPk) continue;
-
-			long currentId = 0;
-			if (row.Count > 28)
-				long.TryParse(row[28]?.ToString(), out currentId);
-
-			if (currentId == 0)
+			var schemaRows = await GetAllRowsAsync("__SheetlySchema__");
+			for (int i = 1; i < schemaRows.Count; i++)
 			{
-				var dataRows = await GetAllRowsAsync(tableName);
-				for (int j = 1; j < dataRows.Count; j++)
-					if (dataRows[j].Count > 0 && long.TryParse(dataRows[j][0]?.ToString(), out var did) && did > currentId)
-						currentId = did;
-			}
+				var row = schemaRows[i];
+				if (row.Count <= 7) continue;
+				if (row[1]?.ToString() != tableName) continue;
+				if (!bool.TryParse(row[7]?.ToString(), out var isPk) || !isPk) continue;
 
-			long nextId = currentId + 1;
-			await UpdateValueAsync("__SheetlySchema__", $"AC{i + 1}", currentId + count);
-			return nextId;
+				long currentId = 0;
+				if (row.Count > 28)
+					long.TryParse(row[28]?.ToString(), out currentId);
+
+				if (currentId == 0)
+				{
+					var dataRows = await GetAllRowsAsync(tableName);
+					for (int j = 1; j < dataRows.Count; j++)
+						if (dataRows[j].Count > 0 && long.TryParse(dataRows[j][0]?.ToString(), out var did) && did > currentId)
+							currentId = did;
+				}
+
+				long nextId = currentId + 1;
+				await UpdateValueAsync("__SheetlySchema__", $"AC{i + 1}", currentId + count);
+				return nextId;
+			}
+			return 1;
 		}
-		return 1;
+		finally
+		{
+			gate.Release();
+		}
 	}
 
 	public Task UpdateRowAsync(string sheetName, int rowIndex, IList<object> row)
@@ -209,6 +222,17 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 
 		ws.SheetView.FreezeRows(1);
 		Save();
+		return Task.CompletedTask;
+	}
+
+	public Task RenameSheetAsync(string oldName, string newName)
+	{
+		EnsureWorkbook();
+		if (_workbook!.TryGetWorksheet(oldName, out var ws))
+		{
+			ws.Name = newName;
+			Save();
+		}
 		return Task.CompletedTask;
 	}
 
@@ -310,7 +334,13 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 
 	private void Save()
 	{
-		_workbook!.SaveAs(_filePath);
+		// Excel requires at least one visible worksheet; if only hidden system sheets remain
+		// (e.g. after rolling back every migration), unhide one so the file stays valid.
+		if (_workbook!.Worksheets.Count > 0 &&
+			!_workbook.Worksheets.Any(w => w.Visibility == XLWorksheetVisibility.Visible))
+			_workbook.Worksheets.First().Visibility = XLWorksheetVisibility.Visible;
+
+		_workbook.SaveAs(_filePath);
 	}
 
 	private static int GetNextEmptyRow(IXLWorksheet ws)

@@ -14,36 +14,36 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 	private static readonly string[] SchemaTableHeaders =
 	[
 		"ClassName",
-        "TableName",
-        "PropertyName",
-        "ColumnName",
-        "DataType",
-        "IsNullable",
-        "IsRequired",
-        "IsPrimaryKey",
-        "IsForeignKey",
-        "ForeignKeyTable",
-        "ForeignKeyColumn",
-        "OnDelete",
-        "OnUpdate",
-        "IsUnique",
-        "IndexName",
-        "MaxLength",
-        "MinLength",
-        "Precision",
-        "Scale",
-        "MinValue",
-        "MaxValue",
-        "DefaultValue",
-        "DefaultValueSql",
-        "CheckConstraint",
-        "IsComputed",
-        "ComputedSql",
-        "IsConcurrencyToken",
-        "IsAutoIncrement",
-        "CurrentIdValue",
-        "Comment"
-    ];
+		"TableName",
+		"PropertyName",
+		"ColumnName",
+		"DataType",
+		"IsNullable",
+		"IsRequired",
+		"IsPrimaryKey",
+		"IsForeignKey",
+		"ForeignKeyTable",
+		"ForeignKeyColumn",
+		"OnDelete",
+		"OnUpdate",
+		"IsUnique",
+		"IndexName",
+		"MaxLength",
+		"MinLength",
+		"Precision",
+		"Scale",
+		"MinValue",
+		"MaxValue",
+		"DefaultValue",
+		"DefaultValueSql",
+		"CheckConstraint",
+		"IsComputed",
+		"ComputedSql",
+		"IsConcurrencyToken",
+		"IsAutoIncrement",
+		"CurrentIdValue",
+		"Comment"
+	];
 
 	public async Task<List<string>> GetAppliedMigrationsAsync()
 	{
@@ -69,6 +69,45 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 		await RecordMigrationAsync(migrationId);
 	}
 
+	public async Task RevertMigrationAsync(List<MigrationOperation> downOperations, string migrationId)
+	{
+		await EnsureSystemTablesExistAsync();
+
+		foreach (var operation in downOperations)
+			await ExecuteOperationAsync(operation);
+
+		await RemoveMigrationFromHistoryAsync(migrationId);
+	}
+
+	private async Task RemoveMigrationFromHistoryAsync(string migrationId)
+	{
+		if (!await provider.SheetExistsAsync(HistoryTable)) return;
+
+		var rows = await provider.GetAllRowsAsync(HistoryTable);
+		if (rows.Count == 0) return;
+
+		var newRows = new List<IList<object>> { rows[0] };
+		for (int i = 1; i < rows.Count; i++)
+			if (rows[i].Count == 0 || rows[i][0]?.ToString() != migrationId)
+				newRows.Add(rows[i]);
+
+		await RewriteSheetAsync(HistoryTable, newRows);
+	}
+
+	/// <summary>
+	/// Replaces a sheet's contents with <paramref name="newRows"/> (row 0 = header).
+	/// ClearSheetAsync preserves the header row, so the header is overwritten in place
+	/// and only the remaining rows are appended — avoiding a duplicated header.
+	/// </summary>
+	private async Task RewriteSheetAsync(string sheet, List<IList<object>> newRows)
+	{
+		await provider.ClearSheetAsync(sheet);
+		if (newRows.Count > 0)
+			await provider.UpdateRowAsync(sheet, 1, newRows[0]);
+		for (int i = 1; i < newRows.Count; i++)
+			await provider.AppendRowAsync(sheet, newRows[i]);
+	}
+
 	private async Task ExecuteOperationAsync(MigrationOperation operation)
 	{
 		switch (operation)
@@ -84,6 +123,12 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 				break;
 			case DropColumnOperation dropColumn:
 				await DropColumnAsync(dropColumn);
+				break;
+			case RenameColumnOperation renameColumn:
+				await RenameColumnAsync(renameColumn);
+				break;
+			case RenameTableOperation renameTable:
+				await RenameTableAsync(renameTable);
 				break;
 			case AlterColumnOperation alterColumn:
 				await AlterColumnAsync(alterColumn);
@@ -132,9 +177,7 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 			newRows.Add(rows[i]);
 		}
 
-		await provider.ClearSheetAsync(SchemaTable);
-		foreach (var row in newRows)
-			await provider.AppendRowAsync(SchemaTable, row);
+		await RewriteSheetAsync(SchemaTable, newRows);
 	}
 
 	private async Task AddColumnAsync(AddColumnOperation op)
@@ -216,6 +259,63 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 		await RemoveFromSchemaTableAsync(op.Table, op.Name);
 	}
 
+	private async Task RenameColumnAsync(RenameColumnOperation op)
+	{
+		var headerRow = await provider.GetRowByIndexAsync(op.Table, 1);
+		if (headerRow is not null)
+		{
+			var headers = headerRow.ToList();
+			int idx = headers.FindIndex(h => h?.ToString() == op.Name);
+			if (idx >= 0)
+			{
+				headers[idx] = op.NewName;
+				await provider.UpdateRowAsync(op.Table, 1, headers);
+			}
+		}
+
+		var rows = await provider.GetAllRowsAsync(SchemaTable);
+		for (int i = 1; i < rows.Count; i++)
+		{
+			if (rows[i].Count > 2 &&
+				rows[i][1]?.ToString() == op.Table &&
+				rows[i][2]?.ToString() == op.Name)
+			{
+				var updatedRow = rows[i].ToList();
+				updatedRow[2] = op.NewName;
+				updatedRow[3] = op.NewName;
+				await provider.UpdateRowAsync(SchemaTable, i + 1, updatedRow);
+				break;
+			}
+		}
+	}
+
+	private async Task RenameTableAsync(RenameTableOperation op)
+	{
+		if (await provider.SheetExistsAsync(op.Name))
+			await provider.RenameSheetAsync(op.Name, op.NewName);
+
+		var rows = await provider.GetAllRowsAsync(SchemaTable);
+		for (int i = 1; i < rows.Count; i++)
+		{
+			var updatedRow = rows[i].ToList();
+			bool changed = false;
+
+			if (updatedRow.Count > 1 && updatedRow[1]?.ToString() == op.Name)
+			{
+				updatedRow[1] = op.NewName;
+				changed = true;
+			}
+			if (updatedRow.Count > 9 && updatedRow[9]?.ToString() == op.Name)
+			{
+				updatedRow[9] = op.NewName;
+				changed = true;
+			}
+
+			if (changed)
+				await provider.UpdateRowAsync(SchemaTable, i + 1, updatedRow);
+		}
+	}
+
 	private async Task AlterColumnAsync(AlterColumnOperation op)
 	{
 		var rows = await provider.GetAllRowsAsync(SchemaTable);
@@ -237,6 +337,20 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 				}
 				if (op.MaxLength.HasValue) updatedRow[15] = op.MaxLength.Value.ToString();
 				if (op.DefaultValue is not null) updatedRow[21] = op.DefaultValue.ToString() ?? "";
+				if (op.IsPrimaryKey.HasValue) updatedRow[7] = op.IsPrimaryKey.Value.ToString();
+				if (op.IsUnique.HasValue) updatedRow[13] = op.IsUnique.Value.ToString();
+				if (op.IsAutoIncrement.HasValue)
+				{
+					updatedRow[27] = op.IsAutoIncrement.Value.ToString();
+					if (op.IsAutoIncrement.Value && string.IsNullOrEmpty(updatedRow[28]?.ToString()))
+						updatedRow[28] = "0";
+				}
+				if (op.IsForeignKey.HasValue)
+				{
+					updatedRow[8] = op.IsForeignKey.Value.ToString();
+					updatedRow[9] = op.IsForeignKey.Value ? op.ForeignKeyTable ?? "" : "";
+					updatedRow[10] = op.IsForeignKey.Value ? op.ForeignKeyColumn : "";
+				}
 
 				await provider.UpdateRowAsync(SchemaTable, i + 1, updatedRow);
 				break;
@@ -298,8 +412,6 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 			newRows.Add(rows[i]);
 		}
 
-		await provider.ClearSheetAsync(SchemaTable);
-		foreach (var row in newRows)
-			await provider.AppendRowAsync(SchemaTable, row);
+		await RewriteSheetAsync(SchemaTable, newRows);
 	}
 }

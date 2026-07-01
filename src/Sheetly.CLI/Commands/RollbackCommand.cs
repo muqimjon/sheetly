@@ -4,18 +4,18 @@ using System.CommandLine;
 namespace Sheetly.CLI.Commands;
 
 /// <summary>
-/// Rolls back the last applied migration.
+/// Reverts the last applied migration against the database (runs its Down()).
+/// The local migration file is kept — only the database state and history change.
 /// </summary>
 public class RollbackCommand : Command
 {
-	private readonly Option<string?> _projectOption = new("--project", ["-p"]) { Description = "Path to project" };
-	private readonly Option<bool> _noBuildOption = new("--no-build", ["-n"]) { Description = "Do not build project" };
+	private readonly Option<string?> _projectOption = new("--project", ["-p"]) { Description = "Manual path to DLL" };
+	private readonly Option<bool> _noBuildOption = new("--no-build", ["-n"]) { Description = "Do not build project before action" };
 
-	public RollbackCommand() : base("rollback", "Rollback the last migration")
+	public RollbackCommand() : base("rollback", "Revert the last applied migration")
 	{
 		this.Add(_projectOption);
 		this.Add(_noBuildOption);
-
 		this.SetAction(async (parseResult, ct) =>
 		{
 			bool noBuild = parseResult.GetValue(_noBuildOption);
@@ -32,57 +32,26 @@ public class RollbackCommand : Command
 		try
 		{
 			var (assembly, loadContext) = CliHelper.LoadAssemblyIsolated(dllPath);
-			var contextType = assembly.GetExportedTypes().FirstOrDefault(t => CliHelper.IsSubclassOfSheetsContext(t))
-				?? throw new Exception("SheetsContext not found.");
+			var coreAsm = CliHelper.GetCoreAssembly(assembly, loadContext);
+			var contextType = CliHelper.FindContextType(assembly);
 
-			string contextProjectDir = CliHelper.FindProjectRootFromDll(contextType.Assembly.Location);
-			string migrationsDir = Path.Combine(contextProjectDir, "Migrations");
+			string? connStr = CliHelper.GetConnectionString(CliHelper.FindProjectRootFromDll(dllPath));
 
-			var migrations = Directory.GetFiles(migrationsDir, "*.cs")
-				.Where(f => !f.EndsWith(".Designer.cs"))
-				.OrderByDescending(f => f)
-				.ToList();
+			Console.WriteLine("⏳ Reverting last migration...");
+			var json = CliHelper.InvokeDesignTime(coreAsm, "RollbackDatabaseAsync", contextType, connStr);
+			var doc = CliHelper.ParseResult(json);
+			if (doc is null) return;
 
-			if (migrations.Count == 0)
-			{
-				Console.WriteLine("⚠️ No migrations to rollback.");
-				return;
-			}
-
-			var lastMigration = migrations[0];
-			var migrationFileName = Path.GetFileName(lastMigration);
-
-			Console.Write($"⚠️ Are you sure you want to rollback '{migrationFileName}'? (y/N): ");
-			var response = Console.ReadLine();
-
-			if (!string.Equals(response, "y", StringComparison.OrdinalIgnoreCase))
-			{
-				Console.WriteLine("Cancelled.");
-				return;
-			}
-
-			File.Delete(lastMigration);
-			Console.WriteLine($"✅ Deleted: {migrationFileName}");
-
-			if (migrations.Count > 1)
-			{
-				Console.WriteLine("💡 Run 'dotnet-sheetly migrations add' again to regenerate snapshot from current model.");
-			}
+			var rolledBack = doc.RootElement.GetProperty("rolledBack").GetString();
+			if (string.IsNullOrEmpty(rolledBack))
+				Console.WriteLine("✅ No applied migrations to revert.");
 			else
-			{
-				var snapshotFiles = Directory.GetFiles(migrationsDir, "*ModelSnapshot.cs");
-				foreach (var sf in snapshotFiles)
-				{
-					File.Delete(sf);
-					Console.WriteLine($"🗑️ Deleted snapshot: {Path.GetFileName(sf)}");
-				}
-			}
-
-			Console.WriteLine("✅ Rollback complete.");
+				Console.WriteLine($"✅ Reverted: {rolledBack}");
 		}
 		catch (Exception ex)
 		{
 			Console.WriteLine($"❌ Error: {ex.Message}");
+			if (ex.InnerException is not null) Console.WriteLine($"🔍 Detail: {ex.InnerException.Message}");
 		}
 	}
 }

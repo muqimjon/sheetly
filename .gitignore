@@ -452,3 +452,6 @@ nupkg/
 
 # Sheetly Excel data files
 *.xlsx
+
+# Ignore sample project migrations (generated during local testing)
+samples/**/Migrations/

@@ -47,6 +47,18 @@ public class MigrationBuilder
 		return this;
 	}
 
+	public MigrationBuilder RenameColumn(string table, string name, string newName)
+	{
+		_operations.Add(new RenameColumnOperation { Table = table, Name = name, NewName = newName });
+		return this;
+	}
+
+	public MigrationBuilder RenameTable(string name, string newName)
+	{
+		_operations.Add(new RenameTableOperation { Name = name, NewName = newName });
+		return this;
+	}
+
 	public MigrationBuilder AlterColumn(string table, string name, Action<AlterColumnBuilder> configure)
 	{
 		var operation = new AlterColumnOperation { Table = table, Name = name };
@@ -249,6 +261,39 @@ public class AlterColumnBuilder
 	public AlterColumnBuilder HasDefaultValue(object value)
 	{
 		_operation.DefaultValue = value;
+		return this;
+	}
+
+	public AlterColumnBuilder IsPrimaryKey(bool primaryKey = true)
+	{
+		_operation.IsPrimaryKey = primaryKey;
+		return this;
+	}
+
+	public AlterColumnBuilder IsAutoIncrement(bool autoIncrement = true)
+	{
+		_operation.IsAutoIncrement = autoIncrement;
+		return this;
+	}
+
+	public AlterColumnBuilder IsUnique(bool unique = true)
+	{
+		_operation.IsUnique = unique;
+		return this;
+	}
+
+	public AlterColumnBuilder IsForeignKey(string table, string column = "Id")
+	{
+		_operation.IsForeignKey = true;
+		_operation.ForeignKeyTable = table;
+		_operation.ForeignKeyColumn = column;
+		return this;
+	}
+
+	public AlterColumnBuilder DropForeignKey()
+	{
+		_operation.IsForeignKey = false;
+		_operation.ForeignKeyTable = null;
 		return this;
 	}
 }

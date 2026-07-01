@@ -1,6 +1,5 @@
 ﻿using Sheetly.Core;
 using Sheetly.Core.Configuration;
-using Sheetly.Excel;
 using Sheetly.Google;
 using Sheetly.Sample.Models;
 
@@ -13,7 +12,7 @@ public class AppDbContext : SheetsContext
 
 	protected override void OnConfiguring(SheetsOptions options)
 	{
-			//options.UseExcel("C:\\Users\\muqim\\OneDrive\\Ishchi stol\\sheetly-test.xlsx");
+		//options.UseExcel("C:\\Users\\muqim\\OneDrive\\Ishchi stol\\sheetly-test.xlsx");
 		options.UseGoogleSheets("1bNZnlJJ81VLbM5VeWoy9uCq4Ynz2bkAXaJlFJAYy_Sc", "credentials.json");
 	}
 

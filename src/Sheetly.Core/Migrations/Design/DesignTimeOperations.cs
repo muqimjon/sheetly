@@ -4,7 +4,6 @@ using Sheetly.Core.Infrastructure;
 using Sheetly.Core.Migration;
 using Sheetly.Core.Migrations.Operations;
 using System.Reflection;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -18,6 +17,22 @@ namespace Sheetly.Core.Migrations.Design;
 /// </summary>
 public static class DesignTimeOperations
 {
+	/// <summary>
+	/// Resolves the migrations namespace for a context type.
+	/// Falls back to the assembly name when the context is in the global namespace (null namespace).
+	/// </summary>
+	public static string ResolveNamespace(Type contextType)
+	{
+		if (!string.IsNullOrEmpty(contextType.Namespace))
+			return $"{contextType.Namespace}.Migrations";
+
+		var asmName = contextType.Assembly.GetName().Name;
+		if (!string.IsNullOrEmpty(asmName))
+			return $"{asmName}.Migrations";
+
+		return "App.Migrations";
+	}
+
 	/// <summary>
 	/// Creates a new migration. Writes files to disk.
 	/// Returns JSON: { "success":true, "migrationFile":"...", "snapshotFile":"...", "operations":["CreateTable",...] }
@@ -57,13 +72,12 @@ public static class DesignTimeOperations
 
 			string timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
 			string migrationId = $"{timestamp}_{name}";
-			string rootNamespace = contextType.Namespace
-				?? contextType.Assembly.GetName().Name
-				?? "App";
-			string targetNamespace = $"{rootNamespace}.Migrations";
+			string targetNamespace = ResolveNamespace(contextType);
+
+			var downOperations = modelDiffer.GetDifferences(currentSnapshot, previousSnapshot ?? new MigrationSnapshot());
 
 			var generator = new CSharpMigrationGenerator();
-			string migrationCode = generator.GenerateMigration(name, migrationId, targetNamespace, operations);
+			string migrationCode = generator.GenerateMigration(name, migrationId, targetNamespace, operations, downOperations);
 			string csharpFileName = $"{migrationId}.cs";
 			File.WriteAllText(Path.Combine(finalPath, csharpFileName), migrationCode);
 
@@ -123,10 +137,7 @@ public static class DesignTimeOperations
 
 			string contextName = contextType.Name.Replace("Context", "");
 			string snapshotClassName = $"{contextName}ModelSnapshot";
-			string rootNamespace = contextType.Namespace
-				?? contextType.Assembly.GetName().Name
-				?? "App";
-			string targetNamespace = $"{rootNamespace}.Migrations";
+			string targetNamespace = ResolveNamespace(contextType);
 
 			var snapshotType = contextType.Assembly.GetExportedTypes()
 				.FirstOrDefault(t => t.Name == snapshotClassName && t.Namespace == targetNamespace)
@@ -228,6 +239,28 @@ public static class DesignTimeOperations
 	}
 
 	/// <summary>
+	/// Reverts the last applied migration against the database (runs Down() and removes history).
+	/// Returns JSON: { "success":true, "rolledBack":"20240101_Init" } or rolledBack null when none.
+	/// </summary>
+	public static async Task<string> RollbackDatabaseAsync(Type contextType, string? connectionString = null)
+	{
+		try
+		{
+			var (provider, migrationService) = CreateProviderFromContext(contextType, connectionString);
+			await provider.InitializeAsync();
+
+			var facade = new DatabaseFacade(provider, migrationService, contextType);
+			var rolledBack = await facade.RollbackLastAsync();
+
+			return JsonSerializer.Serialize(new { success = true, rolledBack });
+		}
+		catch (Exception ex)
+		{
+			return Error(ex.InnerException?.Message ?? ex.Message);
+		}
+	}
+
+	/// <summary>
 	/// Drops the database (clears all sheets).
 	/// Returns JSON: { "success":true }
 	/// </summary>
@@ -259,7 +292,15 @@ public static class DesignTimeOperations
 		{
 			var snapshot = LoadExistingSnapshot(contextType);
 			if (snapshot is null || snapshot.Entities.Count == 0)
-				return Error("No model snapshot found. Ensure migrations have been created and the project is built.");
+			{
+				// Database-first: no local migrations — read the schema straight from __SheetlySchema__.
+				var (provider, _) = CreateProviderFromContext(contextType, connectionString);
+				await provider.InitializeAsync();
+				snapshot = await SchemaReader.ReadAsync(provider);
+			}
+
+			if (snapshot.Entities.Count == 0)
+				return Error("No model snapshot found and '__SheetlySchema__' is empty. Create migrations first, or point at a spreadsheet that already has a Sheetly schema.");
 
 			string contextProjectDir = FindProjectRootFromDll(contextType.Assembly.Location);
 			string finalPath = Path.Combine(contextProjectDir, outputDir ?? "Models/Scaffolded");
@@ -296,12 +337,10 @@ public static class DesignTimeOperations
 	{
 		string contextName = contextType.Name.Replace("Context", "");
 		string snapshotClassName = $"{contextName}ModelSnapshot";
-		string rootNamespace = contextType.Namespace
-			?? contextType.Assembly.GetName().Name
-			?? "App";
+		string targetNamespace = ResolveNamespace(contextType);
 		var snapshotType = contextType.Assembly.GetExportedTypes()
 			.FirstOrDefault(t => t.Name == snapshotClassName &&
-							t.Namespace == $"{rootNamespace}.Migrations");
+							t.Namespace == targetNamespace);
 		if (snapshotType is null) return null;
 		return Activator.CreateInstance(snapshotType) as MigrationSnapshot;
 	}
@@ -429,7 +468,7 @@ public static class DesignTimeOperations
 			Entities = entities,
 			Version = current.Version,
 			LastUpdated = DateTime.UtcNow,
-			ModelHash = CalculateHash(entities)
+			ModelHash = ModelHasher.Calculate(entities)
 		};
 	}
 
@@ -469,31 +508,6 @@ public static class DesignTimeOperations
 		}).ToList(),
 		Relationships = src.Relationships.ToList()
 	};
-
-	private static string CalculateHash(Dictionary<string, EntitySchema> entities)
-	{
-		var structural = entities
-			.OrderBy(e => e.Key)
-			.ToDictionary(
-				e => e.Key,
-				e => new
-				{
-					e.Value.TableName,
-					Columns = e.Value.Columns.Select(c => new
-					{
-						c.Name,
-						c.DataType,
-						c.IsPrimaryKey,
-						c.IsAutoIncrement,
-						c.IsForeignKey,
-						c.ForeignKeyTable,
-						c.ForeignKeyColumn
-					}).ToList()
-				});
-
-		var json = JsonSerializer.Serialize(structural, new JsonSerializerOptions { WriteIndented = false });
-		return Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
-	}
 
 	private static string GenerateClassCode(EntitySchema entity)
 	{

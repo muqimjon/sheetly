@@ -11,59 +11,166 @@ namespace Sheetly.Google;
 
 public class GoogleSheetProvider : ISheetsProvider
 {
-	private readonly SheetsService[] _services;
+	private readonly CredentialRotator<SheetsService> _rotator;
 	private readonly string _spreadsheetId;
-	private int _serviceIndex = -1;
 
 	private Dictionary<string, int> _sheetCache = [];
 	private const int MaxRetries = 5;
 	private static readonly TimeSpan InitialRetryDelay = TimeSpan.FromSeconds(2);
 
-	/// <summary>
-	/// Returns the next service in round-robin order. With N accounts, effective
-	/// write limit is N × 60 req/min instead of 60 req/min for a single account.
-	/// </summary>
-	private SheetsService NextService =>
-		_services[(Interlocked.Increment(ref _serviceIndex) & 0x7FFFFFFF) % _services.Length];
+	// Serializes id generation per spreadsheet across all contexts in this process.
+	// NOTE: this does NOT protect against other processes / machines writing the same
+	// spreadsheet concurrently — the Sheets API has no atomic increment. For multi-writer
+	// deployments, use a single writer or non-sequential keys (e.g. Guid).
+	private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _idLocks = new();
 
 	/// <summary>
-	/// Executes a Google API request with automatic exponential-backoff retry
-	/// on 429 (TooManyRequests) and 503 (ServiceUnavailable) responses.
+	/// Executes a Google API request with credential failover and retry.
+	/// On 429: immediately switches to the next available credential (no wait).
+	/// On 503: exponential backoff.
+	/// On 403: throws a descriptive access-denied error.
+	/// When all credentials are rate-limited: waits for the soonest recovery, then retries.
 	/// </summary>
-	private static async Task<T> ExecuteWithRetryAsync<T>(IClientServiceRequest<T> request)
+	private async Task<T> ExecuteWithFailoverAsync<T>(Func<SheetsService, IClientServiceRequest<T>> requestFactory)
 	{
-		TimeSpan delay = InitialRetryDelay;
-		for (int attempt = 0; attempt <= MaxRetries; attempt++)
+		TimeSpan serviceUnavailableDelay = InitialRetryDelay;
+		int maxAttempts = _rotator.Services.Length * MaxRetries;
+
+		for (int attempt = 0; attempt < maxAttempts; attempt++)
 		{
+			var (svc, idx) = await _rotator.AcquireAsync();
+
 			try
 			{
-				return await request.ExecuteAsync();
+				return await requestFactory(svc).ExecuteAsync();
 			}
 			catch (global::Google.GoogleApiException ex)
-				when (attempt < MaxRetries &&
-					  (ex.HttpStatusCode == System.Net.HttpStatusCode.TooManyRequests ||
-					   ex.HttpStatusCode == System.Net.HttpStatusCode.ServiceUnavailable))
+				when (ex.HttpStatusCode == System.Net.HttpStatusCode.TooManyRequests)
 			{
-				await Task.Delay(delay);
-				delay = TimeSpan.FromSeconds(delay.TotalSeconds * 2);
+				_rotator.MarkRateLimited(idx);
+			}
+			catch (global::Google.GoogleApiException ex)
+				when (ex.HttpStatusCode == System.Net.HttpStatusCode.Forbidden)
+			{
+				throw new InvalidOperationException(
+					$"Access denied to spreadsheet '{_spreadsheetId}'. " +
+					"Make sure every service account in credentials.json has at least 'Editor' permission on the Google Sheet.", ex);
+			}
+			catch (global::Google.GoogleApiException ex)
+				when (ex.HttpStatusCode == System.Net.HttpStatusCode.ServiceUnavailable)
+			{
+				if (attempt == maxAttempts - 1) throw;
+				await Task.Delay(serviceUnavailableDelay);
+				serviceUnavailableDelay = TimeSpan.FromSeconds(serviceUnavailableDelay.TotalSeconds * 2);
+			}
+			catch (Exception ex)
+				when ((ex is System.Net.Http.HttpRequestException
+						|| ex is System.IO.IOException
+						|| ex is TimeoutException)
+					&& attempt < maxAttempts - 1)
+			{
+				await Task.Delay(serviceUnavailableDelay);
+				serviceUnavailableDelay = TimeSpan.FromSeconds(serviceUnavailableDelay.TotalSeconds * 2);
 			}
 		}
-		return await request.ExecuteAsync();
+
+		// Final attempt — if still failing, throw a helpful message on 429
+		var (lastSvc, _) = await _rotator.AcquireAsync();
+		try
+		{
+			return await requestFactory(lastSvc).ExecuteAsync();
+		}
+		catch (global::Google.GoogleApiException ex)
+			when (ex.HttpStatusCode == System.Net.HttpStatusCode.TooManyRequests)
+		{
+			throw new InvalidOperationException(
+				$"Google Sheets API rate limit (429) exceeded across all {_rotator.Services.Length} credential(s) " +
+				$"after {maxAttempts} attempt(s). " +
+				"Add more service account credentials to credentials.json to increase the effective quota.", ex);
+		}
 	}
 
 	public GoogleSheetProvider(string spreadsheetId, string credentialsPath)
 	{
+		if (string.IsNullOrWhiteSpace(spreadsheetId))
+			throw new ArgumentException(
+				"Spreadsheet ID cannot be null or empty. " +
+				"Pass the ID from the Google Sheets URL: docs.google.com/spreadsheets/d/{ID}/edit",
+				nameof(spreadsheetId));
+
+		if (string.IsNullOrWhiteSpace(credentialsPath))
+			throw new ArgumentException(
+				"Credentials file path cannot be null or empty.",
+				nameof(credentialsPath));
+
+		if (!File.Exists(credentialsPath))
+			throw new FileNotFoundException(
+				$"Google credentials file not found at '{credentialsPath}'. " +
+				"Download a service account key from Google Cloud Console → IAM & Admin → Service Accounts → Keys → Add Key → JSON.",
+				credentialsPath);
+
 		_spreadsheetId = spreadsheetId;
-		using var stream = new FileStream(credentialsPath, FileMode.Open, FileAccess.Read);
-		_services = LoadServicesFromJson(new StreamReader(stream).ReadToEnd());
+
+		string json;
+		try { json = File.ReadAllText(credentialsPath); }
+		catch (Exception ex)
+		{
+			throw new InvalidOperationException(
+				$"Failed to read credentials file at '{credentialsPath}'.", ex);
+		}
+
+		_rotator = new CredentialRotator<SheetsService>(LoadServicesFromJson(json));
 	}
 
 	public GoogleSheetProvider(IConfigurationSection section, string spreadsheetId)
 	{
+		if (string.IsNullOrWhiteSpace(spreadsheetId))
+			throw new ArgumentException(
+				"Spreadsheet ID cannot be null or empty.",
+				nameof(spreadsheetId));
+
 		_spreadsheetId = spreadsheetId;
 		var dict = section.GetChildren().ToDictionary(c => c.Key, c => c.Value);
 		var json = JsonSerializer.Serialize(dict);
-		_services = [CreateServiceFromJson(json)];
+		_rotator = new CredentialRotator<SheetsService>([CreateServiceFromJson(json)]);
+	}
+
+	/// <summary>
+	/// Splits credentials JSON into individual raw JSON strings.
+	/// Supports a single object <c>{}</c> or an array <c>[{},{}]</c>.
+	/// Throws a descriptive error for empty arrays or unexpected JSON shapes.
+	/// </summary>
+	internal static string[] ExtractCredentialJsonObjects(string json)
+	{
+		if (string.IsNullOrWhiteSpace(json))
+			throw new InvalidOperationException(
+				"credentials.json is empty. " +
+				"Provide a service account key object {} or an array of objects [{}].");
+
+		var trimmed = json.TrimStart();
+
+		if (trimmed.StartsWith('['))
+		{
+			using var doc = JsonDocument.Parse(json);
+			var items = doc.RootElement.EnumerateArray()
+				.Select(e => e.GetRawText())
+				.ToArray();
+
+			if (items.Length == 0)
+				throw new InvalidOperationException(
+					"credentials.json contains an empty array []. " +
+					"Provide at least one service account credential object: [{...}].");
+
+			return items;
+		}
+
+		if (!trimmed.StartsWith('{'))
+			throw new InvalidOperationException(
+				"credentials.json has an unexpected format. " +
+				"Expected a service account object {} or an array of objects [{},{}]. " +
+				$"Found: '{trimmed[..Math.Min(30, trimmed.Length)]}'");
+
+		return [json];
 	}
 
 	/// <summary>
@@ -73,19 +180,16 @@ public class GoogleSheetProvider : ISheetsProvider
 	/// </summary>
 	private static SheetsService[] LoadServicesFromJson(string json)
 	{
-		var trimmed = json.TrimStart();
-		if (trimmed.StartsWith('['))
+		try
 		{
-			using var doc = JsonDocument.Parse(json);
-			var services = new List<SheetsService>();
-			foreach (var element in doc.RootElement.EnumerateArray())
-				services.Add(CreateServiceFromJson(element.GetRawText()));
-			if (services.Count == 0)
-				throw new InvalidOperationException("credentials.json array is empty.");
-			return [.. services];
+			return ExtractCredentialJsonObjects(json).Select(CreateServiceFromJson).ToArray();
 		}
-
-		return [CreateServiceFromJson(json)];
+		catch (JsonException ex)
+		{
+			throw new InvalidOperationException(
+				"Failed to parse credentials.json. Make sure it is valid JSON. " +
+				$"Details: {ex.Message}", ex);
+		}
 	}
 
 	private static SheetsService CreateServiceFromJson(string json)
@@ -102,7 +206,7 @@ public class GoogleSheetProvider : ISheetsProvider
 
 	public async Task InitializeAsync()
 	{
-		var ss = await ExecuteWithRetryAsync(NextService.Spreadsheets.Get(_spreadsheetId));
+		var ss = await ExecuteWithFailoverAsync(svc => svc.Spreadsheets.Get(_spreadsheetId));
 		_sheetCache = ss.Sheets
 			.Where(s => s.Properties?.Title is not null)
 			.ToDictionary(s => s.Properties.Title!, s => (int)(s.Properties.SheetId ?? 0));
@@ -135,23 +239,26 @@ public class GoogleSheetProvider : ISheetsProvider
 
 	public async Task<List<IList<object>>> GetAllRowsAsync(string sheetName)
 	{
-		var response = await ExecuteWithRetryAsync(
-			NextService.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'"));
+		var response = await ExecuteWithFailoverAsync(
+			svc => svc.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'"));
 		return response.Values?.ToList() ?? [];
 	}
 
 	public async Task<IList<object>?> GetRowByIndexAsync(string sheetName, int rowIndex)
 	{
-		var response = await ExecuteWithRetryAsync(
-			NextService.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!{rowIndex}:{rowIndex}"));
+		var response = await ExecuteWithFailoverAsync(
+			svc => svc.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!{rowIndex}:{rowIndex}"));
 		return response.Values?.FirstOrDefault();
 	}
 
 	public async Task<int> FindRowIndexByKeyAsync(string sheetName, string keyValue)
 	{
-		var request = NextService.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!A:A");
-		request.ValueRenderOption = SpreadsheetsResource.ValuesResource.GetRequest.ValueRenderOptionEnum.UNFORMATTEDVALUE;
-		var response = await ExecuteWithRetryAsync(request);
+		var response = await ExecuteWithFailoverAsync(svc =>
+		{
+			var req = svc.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!A:A");
+			req.ValueRenderOption = SpreadsheetsResource.ValuesResource.GetRequest.ValueRenderOptionEnum.UNFORMATTEDVALUE;
+			return req;
+		});
 
 		if (response.Values is null) return -1;
 		for (int i = 1; i < response.Values.Count; i++)
@@ -166,45 +273,60 @@ public class GoogleSheetProvider : ISheetsProvider
 	public async Task AppendRowAsync(string sheetName, IList<object> row)
 	{
 		var vr = new ValueRange { Values = new List<IList<object>> { row } };
-		var request = NextService.Spreadsheets.Values.Append(vr, _spreadsheetId, $"'{sheetName}'!A1");
-		request.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
-		await ExecuteWithRetryAsync(request);
+		await ExecuteWithFailoverAsync(svc =>
+		{
+			var req = svc.Spreadsheets.Values.Append(vr, _spreadsheetId, $"'{sheetName}'!A1");
+			req.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
+			return req;
+		});
 	}
 
 	public async Task<long> GetAndIncrementIdAsync(string tableName, int count = 1)
 	{
-		var schemaRows = await GetAllRowsAsync("__SheetlySchema__");
-		for (int i = 1; i < schemaRows.Count; i++)
+		var gate = _idLocks.GetOrAdd(_spreadsheetId, _ => new SemaphoreSlim(1, 1));
+		await gate.WaitAsync();
+		try
 		{
-			var row = schemaRows[i];
-			if (row.Count <= 7) continue;
-			if (row[1]?.ToString() != tableName) continue;
-			if (!bool.TryParse(row[7]?.ToString(), out var isPk) || !isPk) continue;
-
-			int spreadsheetRow = i + 1;
-			var rawId = await GetValueAsync("__SheetlySchema__", $"AC{spreadsheetRow}");
-			long.TryParse(rawId?.ToString(), out long currentId);
-
-			if (currentId == 0)
+			var schemaRows = await GetAllRowsAsync("__SheetlySchema__");
+			for (int i = 1; i < schemaRows.Count; i++)
 			{
-				var dataRows = await GetAllRowsAsync(tableName);
-				for (int j = 1; j < dataRows.Count; j++)
-					if (dataRows[j].Count > 0 && long.TryParse(dataRows[j][0]?.ToString(), out var did) && did > currentId)
-						currentId = did;
-			}
+				var row = schemaRows[i];
+				if (row.Count <= 7) continue;
+				if (row[1]?.ToString() != tableName) continue;
+				if (!bool.TryParse(row[7]?.ToString(), out var isPk) || !isPk) continue;
 
-			long nextId = currentId + 1;
-			await UpdateValueAsync("__SheetlySchema__", $"AC{spreadsheetRow}", currentId + count);
-			return nextId;
+				int spreadsheetRow = i + 1;
+				var rawId = await GetValueAsync("__SheetlySchema__", $"AC{spreadsheetRow}");
+				long.TryParse(rawId?.ToString(), out long currentId);
+
+				if (currentId == 0)
+				{
+					var dataRows = await GetAllRowsAsync(tableName);
+					for (int j = 1; j < dataRows.Count; j++)
+						if (dataRows[j].Count > 0 && long.TryParse(dataRows[j][0]?.ToString(), out var did) && did > currentId)
+							currentId = did;
+				}
+
+				long nextId = currentId + 1;
+				await UpdateValueAsync("__SheetlySchema__", $"AC{spreadsheetRow}", currentId + count);
+				return nextId;
+			}
+			return 1;
 		}
-		return 1;
+		finally
+		{
+			gate.Release();
+		}
 	}
 	public async Task AppendRowsAsync(string sheetName, IList<IList<object>> rows)
 	{
 		var vr = new ValueRange { Values = rows };
-		var request = NextService.Spreadsheets.Values.Append(vr, _spreadsheetId, $"'{sheetName}'!A1");
-		request.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
-		await ExecuteWithRetryAsync(request);
+		await ExecuteWithFailoverAsync(svc =>
+		{
+			var req = svc.Spreadsheets.Values.Append(vr, _spreadsheetId, $"'{sheetName}'!A1");
+			req.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
+			return req;
+		});
 	}
 
 	public async Task UpdateRowAsync(string sheetName, int rowIndex, IList<object> row)
@@ -212,9 +334,12 @@ public class GoogleSheetProvider : ISheetsProvider
 		var endCol = GetColumnLetter(row.Count);
 		var range = $"'{sheetName}'!A{rowIndex}:{endCol}{rowIndex}";
 		var valueRange = new ValueRange { Values = new List<IList<object>> { row } };
-		var request = NextService.Spreadsheets.Values.Update(valueRange, _spreadsheetId, range);
-		request.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
-		await ExecuteWithRetryAsync(request);
+		await ExecuteWithFailoverAsync(svc =>
+		{
+			var req = svc.Spreadsheets.Values.Update(valueRange, _spreadsheetId, range);
+			req.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
+			return req;
+		});
 	}
 
 	public async Task DeleteRowAsync(string sheetName, int rowIndex)
@@ -227,9 +352,8 @@ public class GoogleSheetProvider : ISheetsProvider
 				Range = new DimensionRange { SheetId = sheetId, Dimension = "ROWS", StartIndex = rowIndex - 1, EndIndex = rowIndex }
 			}
 		};
-		await ExecuteWithRetryAsync(
-			NextService.Spreadsheets.BatchUpdate(
-				new BatchUpdateSpreadsheetRequest { Requests = [deleteRequest] }, _spreadsheetId));
+		var batchBody = new BatchUpdateSpreadsheetRequest { Requests = [deleteRequest] };
+		await ExecuteWithFailoverAsync(svc => svc.Spreadsheets.BatchUpdate(batchBody, _spreadsheetId));
 	}
 
 	public Task<bool> SheetExistsAsync(string sheetName)
@@ -258,8 +382,8 @@ public class GoogleSheetProvider : ISheetsProvider
 			Requests = new List<Request> { addSheetRequest }
 		};
 
-		var response = await ExecuteWithRetryAsync(
-			NextService.Spreadsheets.BatchUpdate(batchRequest, _spreadsheetId));
+		var response = await ExecuteWithFailoverAsync(
+			svc => svc.Spreadsheets.BatchUpdate(batchRequest, _spreadsheetId));
 		var sheetId = response.Replies[0].AddSheet.Properties.SheetId;
 
 		_sheetCache[sheetName] = (int)(sheetId ?? 0);
@@ -303,38 +427,72 @@ public class GoogleSheetProvider : ISheetsProvider
 			}
 		};
 
-		await ExecuteWithRetryAsync(NextService.Spreadsheets.BatchUpdate(
-			new BatchUpdateSpreadsheetRequest { Requests = [updateCellsRequest] }, _spreadsheetId));
+		var updateBatch = new BatchUpdateSpreadsheetRequest { Requests = [updateCellsRequest] };
+		await ExecuteWithFailoverAsync(svc => svc.Spreadsheets.BatchUpdate(updateBatch, _spreadsheetId));
+	}
+
+	public async Task RenameSheetAsync(string oldName, string newName)
+	{
+		var sheetId = await GetSheetIdInternal(oldName);
+		if (sheetId is null) return;
+
+		var renameBody = new BatchUpdateSpreadsheetRequest
+		{
+			Requests =
+			[
+				new Request
+				{
+					UpdateSheetProperties = new UpdateSheetPropertiesRequest
+					{
+						Properties = new SheetProperties { SheetId = sheetId, Title = newName },
+						Fields = "title"
+					}
+				}
+			]
+		};
+		await ExecuteWithFailoverAsync(svc => svc.Spreadsheets.BatchUpdate(renameBody, _spreadsheetId));
+
+		_sheetCache.Remove(oldName);
+		_sheetCache[newName] = sheetId.Value;
 	}
 
 	public async Task DeleteSheetAsync(string sheetName)
 	{
 		var sheetId = await GetSheetIdInternal(sheetName);
 		if (sheetId is null) return;
-		var request = new Request { DeleteSheet = new DeleteSheetRequest { SheetId = sheetId } };
-		await ExecuteWithRetryAsync(NextService.Spreadsheets.BatchUpdate(
-			new BatchUpdateSpreadsheetRequest { Requests = [request] }, _spreadsheetId));
+		var deleteBody = new BatchUpdateSpreadsheetRequest
+		{
+			Requests = [new Request { DeleteSheet = new DeleteSheetRequest { SheetId = sheetId } }]
+		};
+		await ExecuteWithFailoverAsync(svc => svc.Spreadsheets.BatchUpdate(deleteBody, _spreadsheetId));
 		_sheetCache.Remove(sheetName);
 	}
 
 	public async Task ClearSheetAsync(string sheetName)
 	{
-		await ExecuteWithRetryAsync(
-			NextService.Spreadsheets.Values.Clear(new ClearValuesRequest(), _spreadsheetId, $"'{sheetName}'!A2:ZZ"));
+		var header = await GetRowByIndexAsync(sheetName, 1);
+		var range = header is { Count: > 0 }
+			? $"'{sheetName}'!A2:{GetColumnLetter(header.Count)}"
+			: $"'{sheetName}'!A2:ZZZ";
+		await ExecuteWithFailoverAsync(
+			svc => svc.Spreadsheets.Values.Clear(new ClearValuesRequest(), _spreadsheetId, range));
 	}
 
 	public async Task UpdateValueAsync(string sheetName, string range, object value)
 	{
 		var vr = new ValueRange { Values = [[value]] };
-		var req = NextService.Spreadsheets.Values.Update(vr, _spreadsheetId, $"'{sheetName}'!{range}");
-		req.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
-		await ExecuteWithRetryAsync(req);
+		await ExecuteWithFailoverAsync(svc =>
+		{
+			var req = svc.Spreadsheets.Values.Update(vr, _spreadsheetId, $"'{sheetName}'!{range}");
+			req.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
+			return req;
+		});
 	}
 
 	public async Task<object?> GetValueAsync(string sheetName, string range)
 	{
-		var response = await ExecuteWithRetryAsync(
-			NextService.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!{range}"));
+		var response = await ExecuteWithFailoverAsync(
+			svc => svc.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!{range}"));
 		return response.Values?.FirstOrDefault()?.FirstOrDefault();
 	}
 
@@ -342,46 +500,61 @@ public class GoogleSheetProvider : ISheetsProvider
 	{
 		var sheetId = await GetSheetIdInternal(sheetName);
 		if (sheetId is null) return;
-		var request = new Request
+		var hideBody = new BatchUpdateSpreadsheetRequest
 		{
-			UpdateSheetProperties = new UpdateSheetPropertiesRequest
-			{
-				Properties = new SheetProperties { SheetId = sheetId, Hidden = true },
-				Fields = "hidden"
-			}
+			Requests =
+			[
+				new Request
+				{
+					UpdateSheetProperties = new UpdateSheetPropertiesRequest
+					{
+						Properties = new SheetProperties { SheetId = sheetId, Hidden = true },
+						Fields = "hidden"
+					}
+				}
+			]
 		};
-		await ExecuteWithRetryAsync(NextService.Spreadsheets.BatchUpdate(
-			new BatchUpdateSpreadsheetRequest { Requests = [request] }, _spreadsheetId));
+		await ExecuteWithFailoverAsync(svc => svc.Spreadsheets.BatchUpdate(hideBody, _spreadsheetId));
 	}
 
 	public async Task AddDataValidationAsync(string sheetName, int columnIndex, string message)
 	{
 		var sheetId = await GetSheetIdInternal(sheetName);
-		var request = new Request
+		var validationBody = new BatchUpdateSpreadsheetRequest
 		{
-			SetDataValidation = new SetDataValidationRequest
-			{
-				Range = new GridRange { SheetId = sheetId, StartRowIndex = 1, StartColumnIndex = columnIndex, EndColumnIndex = columnIndex + 1 },
-				Rule = new DataValidationRule { Condition = new BooleanCondition { Type = "NOT_BLANK" }, InputMessage = message, Strict = true }
-			}
+			Requests =
+			[
+				new Request
+				{
+					SetDataValidation = new SetDataValidationRequest
+					{
+						Range = new GridRange { SheetId = sheetId, StartRowIndex = 1, StartColumnIndex = columnIndex, EndColumnIndex = columnIndex + 1 },
+						Rule = new DataValidationRule { Condition = new BooleanCondition { Type = "NOT_BLANK" }, InputMessage = message, Strict = true }
+					}
+				}
+			]
 		};
-		await ExecuteWithRetryAsync(NextService.Spreadsheets.BatchUpdate(
-			new BatchUpdateSpreadsheetRequest { Requests = [request] }, _spreadsheetId));
+		await ExecuteWithFailoverAsync(svc => svc.Spreadsheets.BatchUpdate(validationBody, _spreadsheetId));
 	}
 
 	public async Task SetCheckboxAsync(string sheetName, int startRow, int endRow, int columnId)
 	{
 		var sheetId = await GetSheetIdInternal(sheetName);
-		var request = new Request
+		var checkboxBody = new BatchUpdateSpreadsheetRequest
 		{
-			SetDataValidation = new SetDataValidationRequest
-			{
-				Range = new GridRange { SheetId = sheetId, StartRowIndex = startRow - 1, EndRowIndex = endRow, StartColumnIndex = columnId, EndColumnIndex = columnId + 1 },
-				Rule = new DataValidationRule { Condition = new BooleanCondition { Type = "BOOLEAN" }, ShowCustomUi = true }
-			}
+			Requests =
+			[
+				new Request
+				{
+					SetDataValidation = new SetDataValidationRequest
+					{
+						Range = new GridRange { SheetId = sheetId, StartRowIndex = startRow - 1, EndRowIndex = endRow, StartColumnIndex = columnId, EndColumnIndex = columnId + 1 },
+						Rule = new DataValidationRule { Condition = new BooleanCondition { Type = "BOOLEAN" }, ShowCustomUi = true }
+					}
+				}
+			]
 		};
-		await ExecuteWithRetryAsync(NextService.Spreadsheets.BatchUpdate(
-			new BatchUpdateSpreadsheetRequest { Requests = [request] }, _spreadsheetId));
+		await ExecuteWithFailoverAsync(svc => svc.Spreadsheets.BatchUpdate(checkboxBody, _spreadsheetId));
 	}
 
 	private Task<int?> GetSheetIdInternal(string sheetName)
@@ -393,7 +566,7 @@ public class GoogleSheetProvider : ISheetsProvider
 
 	public void Dispose()
 	{
-		foreach (var svc in _services)
+		foreach (var svc in _rotator.Services)
 			svc?.Dispose();
 	}
 

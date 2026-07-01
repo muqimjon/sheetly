@@ -1,11 +1,17 @@
-name: Publish to NuGet
+name: Release
 
 on:
   push:
-    branches: [ release ]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. 1.2.0'
+        required: true
 
 jobs:
-  publish:
+  release:
     runs-on: ubuntu-latest
 
     steps:
@@ -16,33 +22,29 @@ jobs:
         with:
           dotnet-version: '10.x'
 
-      - name: Extract version
+      - name: Resolve version
         id: version
         run: |
-          VERSION=$(grep -m1 '<Version>' src/Sheetly.Core/Sheetly.Core.csproj | sed 's/.*<Version>\(.*\)<\/Version>.*/\1/' | tr -d '[:space:]')
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Detected version: $VERSION"
+          echo "Releasing v$VERSION"
 
       - name: Build
-        run: dotnet build Sheetly.sln -c Release --no-incremental
+        run: dotnet build Sheetly.sln -c Release --no-incremental -p:Version=${{ steps.version.outputs.version }}
 
       - name: Test
         run: dotnet test tests/Sheetly.Core.Tests/ -c Release --no-build --verbosity normal
 
       - name: Pack
-        run: dotnet pack Sheetly.sln -c Release --no-build -o ./nupkg
+        run: dotnet pack Sheetly.sln -c Release --no-build -o ./nupkg -p:Version=${{ steps.version.outputs.version }}
 
       - name: Push to NuGet
         run: |
-          dotnet nuget push nupkg/Sheetly.Core.${{ steps.version.outputs.version }}.nupkg \
-            -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
-          dotnet nuget push nupkg/Sheetly.Google.${{ steps.version.outputs.version }}.nupkg \
-            -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
-          dotnet nuget push nupkg/Sheetly.Excel.${{ steps.version.outputs.version }}.nupkg \
-            -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
-          dotnet nuget push nupkg/Sheetly.DependencyInjection.${{ steps.version.outputs.version }}.nupkg \
-            -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
-          dotnet nuget push nupkg/dotnet-sheetly.${{ steps.version.outputs.version }}.nupkg \
+          dotnet nuget push "nupkg/*.${{ steps.version.outputs.version }}.nupkg" \
             -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
 
       - name: Create GitHub Release
@@ -50,7 +52,8 @@ jobs:
         with:
           tag: v${{ steps.version.outputs.version }}
           name: Sheetly v${{ steps.version.outputs.version }}
-          artifacts: nupkg/*.nupkg
           bodyFile: docs/RELEASE_NOTES.md
+          artifacts: nupkg/*.nupkg
           token: ${{ secrets.GITHUB_TOKEN }}
           skipIfReleaseExists: true
+          allowUpdates: true

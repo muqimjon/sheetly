@@ -23,7 +23,8 @@ public class CSharpMigrationGenerator
 		string migrationName,
 		string migrationId,
 		string targetNamespace,
-		List<MigrationOperation> operations)
+		List<MigrationOperation> operations,
+		List<MigrationOperation>? downOperations = null)
 	{
 		var sb = new StringBuilder();
 
@@ -46,7 +47,10 @@ public class CSharpMigrationGenerator
 
 		sb.AppendLine($"{Indent}public override void Down(MigrationBuilder builder)");
 		sb.AppendLine($"{Indent}{{");
-		GenerateReverseOperations(sb, operations, Indent + Indent);
+		if (downOperations is not null)
+			GenerateOperations(sb, downOperations, Indent + Indent);
+		else
+			GenerateReverseOperations(sb, operations, Indent + Indent);
 		sb.AppendLine($"{Indent}}}");
 
 		sb.AppendLine("}");
@@ -72,6 +76,14 @@ public class CSharpMigrationGenerator
 					break;
 				case DropColumnOperation dropColumn:
 					sb.AppendLine($"{indent}builder.DropColumn(\"{dropColumn.Table}\", \"{dropColumn.Name}\");");
+					sb.AppendLine();
+					break;
+				case RenameColumnOperation renameColumn:
+					sb.AppendLine($"{indent}builder.RenameColumn(\"{renameColumn.Table}\", \"{renameColumn.Name}\", \"{renameColumn.NewName}\");");
+					sb.AppendLine();
+					break;
+				case RenameTableOperation renameTable:
+					sb.AppendLine($"{indent}builder.RenameTable(\"{renameTable.Name}\", \"{renameTable.NewName}\");");
 					sb.AppendLine();
 					break;
 				case AlterColumnOperation alterColumn:
@@ -246,6 +258,20 @@ public class CSharpMigrationGenerator
 		if (operation.DefaultValue is not null)
 			chain.Add($".HasDefaultValue({FormatValue(operation.DefaultValue)})");
 
+		if (operation.IsPrimaryKey.HasValue)
+			chain.Add($".IsPrimaryKey({operation.IsPrimaryKey.Value.ToString().ToLower()})");
+
+		if (operation.IsAutoIncrement.HasValue)
+			chain.Add($".IsAutoIncrement({operation.IsAutoIncrement.Value.ToString().ToLower()})");
+
+		if (operation.IsUnique.HasValue)
+			chain.Add($".IsUnique({operation.IsUnique.Value.ToString().ToLower()})");
+
+		if (operation.IsForeignKey == true && !string.IsNullOrEmpty(operation.ForeignKeyTable))
+			chain.Add($".IsForeignKey(\"{operation.ForeignKeyTable}\")");
+		else if (operation.IsForeignKey == false)
+			chain.Add(".DropForeignKey()");
+
 		sb.AppendLine($"{indent}builder.AlterColumn(\"{operation.Table}\", \"{operation.Name}\", c => c{string.Join("", chain)});");
 		sb.AppendLine();
 	}
@@ -290,6 +316,12 @@ public class CSharpMigrationGenerator
 					break;
 				case DropColumnOperation dropColumn:
 					sb.AppendLine($"{indent}// TODO: Recreate column \"{dropColumn.Table}.{dropColumn.Name}\"");
+					break;
+				case RenameColumnOperation renameColumn:
+					sb.AppendLine($"{indent}builder.RenameColumn(\"{renameColumn.Table}\", \"{renameColumn.NewName}\", \"{renameColumn.Name}\");");
+					break;
+				case RenameTableOperation renameTable:
+					sb.AppendLine($"{indent}builder.RenameTable(\"{renameTable.NewName}\", \"{renameTable.Name}\");");
 					break;
 				case AlterColumnOperation alterColumn:
 					sb.AppendLine($"{indent}// TODO: Revert column \"{alterColumn.Table}.{alterColumn.Name}\"");

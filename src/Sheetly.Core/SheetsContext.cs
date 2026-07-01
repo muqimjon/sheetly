@@ -189,28 +189,17 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 			throw new InvalidOperationException(
 				"Context not initialized. Call InitializeAsync() first.");
 
-		foreach (var set in sets.Values)
-		{
-			set.GetType()
-				.GetMethod("DetectChanges", BindingFlags.NonPublic | BindingFlags.Instance)
-				?.Invoke(set, null);
-		}
-
 		var allPendingEntities = new List<object>();
+		var allAddedEntities = new List<object>();
 		var allDeletedEntities = new List<object>();
 
 		foreach (var set in sets.Values)
 		{
-			var getPendingMethod = set.GetType().GetMethod("GetPendingEntities",
-				BindingFlags.NonPublic | BindingFlags.Instance);
-			var getDeletedMethod = set.GetType().GetMethod("GetDeletedEntities",
-				BindingFlags.NonPublic | BindingFlags.Instance);
-
-			if (getPendingMethod?.Invoke(set, null) is IEnumerable<object> pending)
-				allPendingEntities.AddRange(pending);
-
-			if (getDeletedMethod?.Invoke(set, null) is IEnumerable<object> deleted)
-				allDeletedEntities.AddRange(deleted);
+			var setInternal = (ISheetsSetInternal)set;
+			setInternal.DetectChanges();
+			allPendingEntities.AddRange(setInternal.GetPendingEntities());
+			allAddedEntities.AddRange(setInternal.GetAddedEntities());
+			allDeletedEntities.AddRange(setInternal.GetDeletedEntities());
 		}
 
 		if (_validator is not null && allPendingEntities.Count > 0)
@@ -244,6 +233,9 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 				throw new ValidationException(result);
 		}
 
+		if (allAddedEntities.Count > 0)
+			await ValidateInsertUniquenessAsync(allAddedEntities);
+
 		if (allPendingEntities.Count > 0)
 			await ValidateForeignKeyReferencesAsync(allPendingEntities);
 
@@ -255,16 +247,99 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 		int total = 0;
 		foreach (var set in sets.Values)
 		{
-			var method = set.GetType().GetMethod("SaveChangesInternalAsync",
-				BindingFlags.NonPublic | BindingFlags.Instance);
-
-			if (method is not null)
-			{
-				var result = await (Task<int>)method.Invoke(set, null)!;
-				total += result;
-			}
+			total += await ((ISheetsSetInternal)set).SaveChangesInternalAsync();
 		}
 		return total;
+	}
+
+	/// <summary>
+	/// Enforces primary-key and unique-column uniqueness for newly added entities against
+	/// existing remote data and within the pending insert batch. One read per table.
+	/// </summary>
+	private async Task ValidateInsertUniquenessAsync(List<object> addedEntities)
+	{
+		if (_currentSnapshot?.Entities is null || Provider is null) return;
+
+		foreach (var group in addedEntities.GroupBy(e => e.GetType()))
+		{
+			var entityType = group.Key;
+			var schema = _currentSnapshot.Entities.Values.FirstOrDefault(e => e.ClassName == entityType.Name);
+			if (schema is null) continue;
+
+			var pkColumns = schema.Columns.Where(c => c.IsPrimaryKey).ToList();
+			bool compositeKey = pkColumns.Count > 1;
+
+			var uniqueColumns = schema.Columns
+				.Where(c => c.IsUnique || (c.IsPrimaryKey && !c.IsAutoIncrement && !compositeKey))
+				.ToList();
+			if (uniqueColumns.Count == 0 && !compositeKey) continue;
+
+			var rows = await Provider.GetAllRowsAsync(schema.TableName);
+			var headers = rows.Count > 0 ? rows[0].Select(h => h?.ToString() ?? string.Empty).ToList() : [];
+
+			if (compositeKey)
+				ValidateCompositeKeyUniqueness(group, entityType, schema, pkColumns, rows, headers);
+
+			foreach (var column in uniqueColumns)
+			{
+				var prop = entityType.GetProperty(column.PropertyName);
+				if (prop is null) continue;
+
+				int colIndex = headers.IndexOf(column.PropertyName);
+				if (colIndex < 0) colIndex = headers.IndexOf(column.Name);
+
+				var existing = new HashSet<string>(StringComparer.Ordinal);
+				if (colIndex >= 0)
+					for (int i = 1; i < rows.Count; i++)
+						if (colIndex < rows[i].Count && rows[i][colIndex]?.ToString() is { Length: > 0 } v)
+							existing.Add(v);
+
+				var label = column.IsPrimaryKey ? "primary key" : "unique column";
+				var seen = new HashSet<string>(StringComparer.Ordinal);
+				foreach (var entity in group)
+				{
+					var value = prop.GetValue(entity)?.ToString();
+					if (string.IsNullOrEmpty(value)) continue;
+
+					if (existing.Contains(value))
+						throw new InvalidOperationException(
+							$"Duplicate value '{value}' for {label} '{column.PropertyName}' in '{schema.TableName}'. A row with this value already exists.");
+					if (!seen.Add(value))
+						throw new InvalidOperationException(
+							$"Duplicate value '{value}' for {label} '{column.PropertyName}' in '{schema.TableName}' within the pending inserts.");
+				}
+			}
+		}
+	}
+
+	private static void ValidateCompositeKeyUniqueness(IEnumerable<object> group, Type entityType, EntitySchema schema, List<ColumnSchema> pkColumns, IList<IList<object>> rows, List<string> headers)
+	{
+		var props = pkColumns.Select(c => entityType.GetProperty(c.PropertyName)).ToList();
+		if (props.Any(p => p is null)) return;
+
+		var colIndexes = pkColumns
+			.Select(c => { var i = headers.IndexOf(c.PropertyName); return i < 0 ? headers.IndexOf(c.Name) : i; })
+			.ToList();
+
+		string KeyOf(IList<object> row) =>
+			string.Join("|", colIndexes.Select(ci => ci >= 0 && ci < row.Count ? row[ci]?.ToString() ?? string.Empty : string.Empty));
+
+		var existing = new HashSet<string>(StringComparer.Ordinal);
+		for (int i = 1; i < rows.Count; i++)
+			existing.Add(KeyOf(rows[i]));
+
+		var seen = new HashSet<string>(StringComparer.Ordinal);
+		var keyNames = string.Join(", ", pkColumns.Select(c => c.PropertyName));
+		foreach (var entity in group)
+		{
+			var key = string.Join("|", props.Select(p => p!.GetValue(entity)?.ToString() ?? string.Empty));
+			if (existing.Contains(key))
+				throw new InvalidOperationException(
+					$"Duplicate composite key ({keyNames}) = '{key}' in '{schema.TableName}'. A row with this key already exists.");
+			if (!seen.Add(key))
+				throw new InvalidOperationException(
+					$"Duplicate composite key ({keyNames}) = '{key}' in '{schema.TableName}' within the pending inserts.");
+		}
 	}
 
 	/// <summary>
@@ -352,10 +427,14 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 
 	/// <summary>
 	/// Enforces FK constraints on delete: Restrict, Cascade, SetNull, SetDefault.
+	/// Caches table data to minimize API calls when checking multiple FK relationships.
 	/// </summary>
 	private async Task ValidateForeignKeyConstraintsOnDelete(List<object> deletedEntities)
 	{
 		if (_currentSnapshot?.Entities is null || Provider is null) return;
+
+		// Cache table data to avoid duplicate API calls for the same table
+		var tableDataCache = new Dictionary<string, List<IList<object>>>();
 
 		foreach (var deletedEntity in deletedEntities)
 		{
@@ -380,14 +459,19 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 					.ToList();
 				if (fkColumns.Count == 0) continue;
 
+				if (!await Provider.SheetExistsAsync(otherEntity.TableName)) continue;
+
+				if (!tableDataCache.TryGetValue(otherEntity.TableName, out var dataRows))
+				{
+					dataRows = await Provider.GetAllRowsAsync(otherEntity.TableName);
+					tableDataCache[otherEntity.TableName] = dataRows;
+				}
+				if (dataRows.Count <= 1) continue;
+
+				var headerRow = dataRows[0];
+
 				foreach (var fkColumn in fkColumns)
 				{
-					if (!await Provider.SheetExistsAsync(otherEntity.TableName)) continue;
-
-					var dataRows = await Provider.GetAllRowsAsync(otherEntity.TableName);
-					if (dataRows.Count <= 1) continue;
-
-					var headerRow = dataRows[0];
 					int fkColumnIndex = -1;
 					for (int i = 0; i < headerRow.Count; i++)
 					{
@@ -396,11 +480,12 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 					}
 					if (fkColumnIndex < 0) continue;
 
+					var pkStr = pkValue.ToString();
 					var referencingRows = new List<int>();
 					for (int i = 1; i < dataRows.Count; i++)
 					{
 						if (fkColumnIndex < dataRows[i].Count &&
-							dataRows[i][fkColumnIndex]?.ToString() == pkValue.ToString())
+							dataRows[i][fkColumnIndex]?.ToString() == pkStr)
 							referencingRows.Add(i);
 					}
 
@@ -417,7 +502,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 
 						case ForeignKeyAction.Cascade:
 							foreach (var rowIndex in referencingRows.OrderByDescending(x => x))
-								await Provider.DeleteRowAsync(otherEntity.TableName, rowIndex);
+								await Provider.DeleteRowAsync(otherEntity.TableName, rowIndex + 1);
 							break;
 
 						case ForeignKeyAction.SetNull:

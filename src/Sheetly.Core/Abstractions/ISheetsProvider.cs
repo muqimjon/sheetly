@@ -8,8 +8,9 @@ public interface ISheetsProvider : IDisposable
 	Task<List<IList<object>>> GetAllRowsAsync(string sheetName);
 	Task<IList<object>?> GetRowByIndexAsync(string sheetName, int rowIndex);
 	/// <summary>
-	/// Reads only column A to find the 1-based row index of a matching key value.
-	/// Returns -1 if not found. Uses 2 API calls total (key column + full row).
+	/// Reads only column A (the key column, data rows only — the header is skipped)
+	/// to find the 1-based spreadsheet row index of a matching key value.
+	/// Returns -1 if not found. Uses a single API call.
 	/// </summary>
 	Task<int> FindRowIndexByKeyAsync(string sheetName, string keyValue);
 	Task AppendRowAsync(string sheetName, IList<object> row);
@@ -20,6 +21,7 @@ public interface ISheetsProvider : IDisposable
 
 	Task<bool> SheetExistsAsync(string sheetName);
 	Task CreateSheetAsync(string sheetName, IList<string> headers);
+	Task RenameSheetAsync(string oldName, string newName);
 	Task DeleteSheetAsync(string sheetName);
 	Task ClearSheetAsync(string sheetName);
 	Task HideSheetAsync(string sheetName);

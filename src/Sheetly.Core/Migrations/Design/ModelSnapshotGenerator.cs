@@ -65,7 +65,6 @@ public class ModelSnapshotGenerator
 
 	private void GenerateEntity(StringBuilder sb, EntitySchema entity, string indent)
 	{
-		sb.AppendLine($"{indent}// {entity.ClassName}");
 		sb.AppendLine($"{indent}snapshot.Entities[\"{entity.TableName}\"] = new EntitySchema");
 		sb.AppendLine($"{indent}{{");
 		sb.AppendLine($"{indent}{Indent}TableName = \"{entity.TableName}\",");
@@ -163,6 +162,15 @@ public class ModelSnapshotGenerator
 
 		if (column.IsConcurrencyToken)
 			sb.AppendLine($"{indent}{Indent}IsConcurrencyToken = true,");
+
+		if (column.IsRowVersion)
+			sb.AppendLine($"{indent}{Indent}IsRowVersion = true,");
+
+		if (column.OnDelete != ForeignKeyAction.NoAction)
+			sb.AppendLine($"{indent}{Indent}OnDelete = ForeignKeyAction.{column.OnDelete},");
+
+		if (column.OnUpdate != ForeignKeyAction.NoAction)
+			sb.AppendLine($"{indent}{Indent}OnUpdate = ForeignKeyAction.{column.OnUpdate},");
 
 		if (!string.IsNullOrEmpty(column.Comment))
 			sb.AppendLine($"{indent}{Indent}Comment = \"{EscapeString(column.Comment)}\",");

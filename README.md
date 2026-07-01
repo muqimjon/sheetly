@@ -72,29 +72,36 @@ var products = await context.Products
 - `Include()` with **string** and **expression-based** overloads (`Include(p => p.Category)`)
 - `AsNoTracking()` for read-only queries
 - `FindAsync()`, `FirstOrDefaultAsync()`, `Where()`, `CountAsync()`, `AnyAsync()`
+- Query operators: `OrderBy()`, `OrderByDescending()`, `Skip()`, `Take()`, `SelectAsync()` (pagination & projection)
+- **Identity map** — the same row loaded twice returns the same tracked instance
 - `CancellationToken` support on `SaveChangesAsync()`
 - `IAsyncDisposable` — use `await using` for automatic cleanup
 
 ### 🔄 **Code-First Migrations**
-- C# migration files with Up/Down methods
-- Automatic model change detection
-- Migration history tracking
+- C# migration files with fully-generated Up/Down methods (reversible by default)
+- Automatic model change detection — including PK/FK/unique/auto-increment changes
+- Column & table **rename** operations (data preserved, not drop+add)
+- Migration history tracking and **rollback** of the last applied migration
+- Database-first **scaffold** from an existing spreadsheet
 - Schema synchronization checks at startup
 
 ```bash
 dotnet sheetly migrations add InitialCreate
 dotnet sheetly database update
+dotnet sheetly migrations rollback
 ```
 
 ### ✅ **Constraint Validation**
-- Primary Keys (auto-detected, auto-increment)
-- Foreign Keys (auto-detected from navigation properties)
+- Primary Keys (auto-detected, auto-increment) and **composite keys** (`HasKey(e => new { e.A, e.B })`)
+- Foreign Keys (auto-detected) with **delete behavior** (`OnDelete(Cascade/SetNull/SetDefault/Restrict)`)
+- Unique constraints (`IsUnique()`) — checked against existing rows **and** the pending batch
 - Required/Nullable (`IsRequired()`)
 - Max/Min Length (`HasMaxLength()`, `HasMinLength()`)
 - Range validation (`HasRange()`)
 - Default values (`HasDefaultValue()`)
 - Column mapping (`HasColumnName()`)
-- Local validation before API calls
+- **Optimistic concurrency** (`IsConcurrencyToken()`, `IsRowVersion()`)
+- Local validation before API calls (strict — throws on type/constraint violations, like EF Core)
 
 ### 🛡️ **Schema Tracking & Performance**
 - Hidden **\_\_SheetlySchema\_\_** sheet stores all metadata
@@ -112,6 +119,7 @@ dotnet tool install -g dotnet-sheetly
 dotnet sheetly migrations add MyMigration
 dotnet sheetly migrations list
 dotnet sheetly migrations remove
+dotnet sheetly migrations rollback
 dotnet sheetly database update
 dotnet sheetly database drop
 dotnet sheetly scaffold
@@ -345,6 +353,104 @@ var count = await context.Products.CountAsync();
 var any = await context.Products.AnyAsync(p => p.Price > 0);
 ```
 
+### **Query Operators (Ordering, Pagination, Projection)**
+
+```csharp
+// Sort, page and project — composable, materialized with ToListAsync()
+var page = await context.Products
+    .OrderByDescending(p => p.Price)
+    .Skip(20)
+    .Take(10)
+    .ToListAsync();
+
+var names = await context.Products
+    .OrderBy(p => p.Title)
+    .SelectAsync(p => p.Title);
+```
+
+### **Composite Keys**
+
+```csharp
+public class OrderLine
+{
+    public int OrderId { get; set; }
+    public int LineNo { get; set; }
+    public string Product { get; set; } = string.Empty;
+    public int Quantity { get; set; }
+}
+
+modelBuilder.Entity<OrderLine>(entity =>
+{
+    entity.HasSheetName("OrderLines");
+    entity.HasKey(l => new { l.OrderId, l.LineNo });
+});
+
+// Uniqueness is enforced on the key combination, not each column.
+// Look up by the full key (in declaration order):
+var line = await context.OrderLines.FindAsync(orderId, lineNo);
+```
+
+> Composite-keyed entities are never auto-incremented — supply both key values yourself.
+
+### **Foreign Key Delete Behavior**
+
+```csharp
+modelBuilder.Entity<Employee>(entity =>
+{
+    // When a Department is deleted, its Employees are deleted too
+    entity.Property(e => e.DepartmentId).OnDelete(ForeignKeyAction.Cascade);
+    // Other options: SetNull, SetDefault, Restrict (default)
+});
+```
+
+`SaveChangesAsync()` enforces these rules locally before writing: `Restrict` blocks the delete if dependents exist, `Cascade` removes them, `SetNull`/`SetDefault` rewrites the FK column.
+
+### **Optimistic Concurrency**
+
+```csharp
+public class Document
+{
+    public int Id { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public int Version { get; set; }   // row version
+}
+
+modelBuilder.Entity<Document>(entity =>
+{
+    entity.Property(d => d.Version).IsRowVersion();
+    // or, for an arbitrary token column: .IsConcurrencyToken()
+});
+```
+
+On update, Sheetly re-reads the row and compares the concurrency token. If another process changed it in the meantime, a `DbUpdateConcurrencyException` is thrown (reload and retry). `IsRowVersion()` columns are auto-incremented on every save.
+
+### **Unique Constraints**
+
+```csharp
+modelBuilder.Entity<UserAccount>(entity =>
+{
+    entity.Property(u => u.Email).IsRequired().IsUnique();
+});
+```
+
+Duplicate values are rejected against both existing rows and other pending inserts in the same `SaveChangesAsync()`.
+
+### **Rollback & Database-First Scaffold**
+
+```bash
+# Revert the most recently applied migration (runs its Down() and removes it from history)
+dotnet sheetly migrations rollback
+
+# Generate model + context classes from an existing spreadsheet
+dotnet sheetly scaffold
+```
+
+You can also inspect the schema currently applied to the store:
+
+```csharp
+var snapshot = await context.Database.GetAppliedSchemaAsync();
+```
+
 ### **Expression-Based Include**
 
 ```csharp
@@ -371,10 +477,12 @@ await context.SaveChangesAsync();
 ```csharp
 // credentials.json can be a single object or an array:
 // [{ "type": "service_account", ... }, { "type": "service_account", ... }]
-// Each API call rotates to the next credential (round-robin)
-// Effective limit: N accounts × 60 req/min = N×60 req/min
+// Each API call rotates to the next credential (round-robin); on a 429 the
+// rotator advances to the next credential and retries.
 options.UseGoogleSheets("spreadsheet-id", "credentials.json");
 ```
+
+> **Quota nuance.** The Sheets API enforces two stacked limits (defaults): **60 req/min per service account per project** *and* **300 req/min per project** (read and write counted separately). A single account is therefore capped at 60/min, not 300. Rotating across multiple service accounts in the **same** project raises throughput from 60/min toward the 300/min project ceiling (≈5 accounts max it out — more accounts in that project add nothing). To go **beyond** 300/min, the credentials must belong to **separate Google Cloud projects**; each project contributes its own 300/min ceiling.
 
 ### **CancellationToken Support**
 
