@@ -38,6 +38,16 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 	/// <c>Set&lt;T&gt;()</c>. Works for any entity in the model, whether or not the context
 	/// declares a <see cref="SheetsSet{T}"/> property for it.
 	/// </summary>
+	private ChangeTracking.ChangeTracker? _changeTracker;
+
+	/// <summary>Change-tracking information for entities tracked by this context (EF Core parity).</summary>
+	public ChangeTracking.ChangeTracker ChangeTracker =>
+		_changeTracker ??= new ChangeTracking.ChangeTracker(() => sets.Values.Cast<ISheetsSetInternal>());
+
+	/// <summary>Gets the <see cref="ChangeTracking.EntityEntry{TEntity}"/> for an entity (EF Core <c>Entry</c>).</summary>
+	public ChangeTracking.EntityEntry<TEntity> Entry<TEntity>(TEntity entity) where TEntity : class, new()
+		=> new(entity, Set<TEntity>());
+
 	public SheetsSet<TEntity> Set<TEntity>() where TEntity : class, new()
 	{
 		if (sets.TryGetValue(typeof(TEntity), out var existing))

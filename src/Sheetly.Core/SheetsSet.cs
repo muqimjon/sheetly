@@ -18,6 +18,16 @@ internal interface ISheetsSetInternal
 	IEnumerable<object> GetAddedEntities();
 	IEnumerable<object> GetDeletedEntities();
 	Task<int> SaveChangesInternalAsync();
+
+	Type ElementType { get; }
+	IEnumerable<object> GetTrackedEntities();
+	EntityState GetEntityState(object entity);
+	void SetEntityState(object entity, EntityState state);
+	bool HasTrackedChanges();
+	void ClearTracking();
+	IReadOnlyDictionary<string, object?> GetCurrentValues(object entity);
+	IReadOnlyDictionary<string, object?> GetOriginalValues(object entity);
+	Task ReloadEntityAsync(object entity);
 }
 
 public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Dictionary<string, EntitySchema> allSchemas) : ISheetsSetInternal where T : class, new()
@@ -117,6 +127,120 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 	{
 		AddRange(entities);
 		return ValueTask.CompletedTask;
+	}
+
+	/// <summary>Begins tracking an existing entity as <see cref="EntityState.Unchanged"/> (EF Core <c>Attach</c>).</summary>
+	public void Attach(T entity)
+	{
+		_trackedEntities[entity] = EntityState.Unchanged;
+		_originalValues[entity] = ComputeEntityValues(entity);
+		var pk = GetPrimaryKeyString(entity);
+		if (pk is not null) _identityMap[pk] = entity;
+		if (_concurrencyColumn is not null) _originalTokens[entity] = GetTokenString(entity);
+	}
+
+	public void AttachRange(params T[] entities) => AttachRange((IEnumerable<T>)entities);
+	public void AttachRange(IEnumerable<T> entities) { foreach (var e in entities) Attach(e); }
+
+	/// <summary>The tracked entities currently in the change tracker for this set (EF Core <c>Local</c>).</summary>
+	public IReadOnlyList<T> Local =>
+		_trackedEntities.Where(kv => kv.Value is EntityState.Added or EntityState.Unchanged or EntityState.Modified)
+			.Select(kv => kv.Key).ToList();
+
+	Type ISheetsSetInternal.ElementType => typeof(T);
+
+	IEnumerable<object> ISheetsSetInternal.GetTrackedEntities() => _trackedEntities.Keys.Cast<object>().ToList();
+
+	EntityState ISheetsSetInternal.GetEntityState(object entity)
+		=> _trackedEntities.TryGetValue((T)entity, out var state) ? state : EntityState.Detached;
+
+	void ISheetsSetInternal.SetEntityState(object entity, EntityState state)
+	{
+		var e = (T)entity;
+		if (state == EntityState.Detached) { RemoveTracking(e); return; }
+		_trackedEntities[e] = state;
+		if (!_originalValues.ContainsKey(e)) _originalValues[e] = ComputeEntityValues(e);
+	}
+
+	bool ISheetsSetInternal.HasTrackedChanges()
+		=> _trackedEntities.Values.Any(s => s is EntityState.Added or EntityState.Modified or EntityState.Deleted);
+
+	void ISheetsSetInternal.ClearTracking()
+	{
+		_trackedEntities.Clear();
+		_entityRowIndexes.Clear();
+		_originalValues.Clear();
+		_originalTokens.Clear();
+		_identityMap.Clear();
+	}
+
+	IReadOnlyDictionary<string, object?> ISheetsSetInternal.GetCurrentValues(object entity)
+	{
+		var e = (T)entity;
+		var values = new Dictionary<string, object?>();
+		foreach (var col in schema.Columns)
+			values[col.PropertyName] = typeof(T).GetProperty(col.PropertyName)?.GetValue(e);
+		return values;
+	}
+
+	IReadOnlyDictionary<string, object?> ISheetsSetInternal.GetOriginalValues(object entity)
+	{
+		var e = (T)entity;
+		_originalValues.TryGetValue(e, out var original);
+		var values = new Dictionary<string, object?>();
+		for (int i = 0; i < schema.Columns.Count; i++)
+		{
+			var name = schema.Columns[i].PropertyName;
+			values[name] = original is not null && i < original.Length
+				? original[i]
+				: typeof(T).GetProperty(name)?.GetValue(e);
+		}
+		return values;
+	}
+
+	Task ISheetsSetInternal.ReloadEntityAsync(object entity) => ReloadEntityAsync((T)entity);
+
+	private void RemoveTracking(T entity)
+	{
+		_trackedEntities.Remove(entity);
+		_entityRowIndexes.Remove(entity);
+		_originalValues.Remove(entity);
+		_originalTokens.Remove(entity);
+		var pk = GetPrimaryKeyString(entity);
+		if (pk is not null && _identityMap.TryGetValue(pk, out var mapped) && ReferenceEquals(mapped, entity))
+			_identityMap.Remove(pk);
+	}
+
+	private async Task ReloadEntityAsync(T entity)
+	{
+		var headers = await GetHeadersAsync();
+		if (headers.Count == 0) return;
+
+		if (!_entityRowIndexes.TryGetValue(entity, out var rowIndex))
+		{
+			if (_pkColumn is null)
+				throw new InvalidOperationException("Cannot reload an entity that has no primary key and no known row.");
+			var pkIndex = ResolvePkColumnIndex(headers);
+			var keyStr = SheetsValueConverter.ToKeyString(typeof(T).GetProperty(_pkColumn.PropertyName)?.GetValue(entity));
+			rowIndex = await provider.FindRowIndexByKeyAsync(schema.TableName, keyStr, pkIndex);
+		}
+
+		if (rowIndex < 0) throw new InvalidOperationException("The row no longer exists; cannot reload.");
+
+		var row = await provider.GetRowByIndexAsync(schema.TableName, rowIndex);
+		if (row is null) throw new InvalidOperationException("The row no longer exists; cannot reload.");
+
+		var fresh = EntityMapper.MapFromRow<T>(row, headers, schema);
+		foreach (var col in schema.Columns)
+		{
+			var prop = typeof(T).GetProperty(col.PropertyName);
+			if (prop is not null && prop.CanWrite) prop.SetValue(entity, prop.GetValue(fresh));
+		}
+
+		_entityRowIndexes[entity] = rowIndex;
+		_trackedEntities[entity] = EntityState.Unchanged;
+		_originalValues[entity] = ComputeEntityValues(entity);
+		if (_concurrencyColumn is not null) _originalTokens[entity] = GetTokenString(entity);
 	}
 
 	IEnumerable<object> ISheetsSetInternal.GetDeletedEntities() =>
