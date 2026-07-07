@@ -1,4 +1,5 @@
 using Sheetly.Core.Abstractions;
+using Sheetly.Core.ChangeTracking;
 using Sheetly.Core.Configuration;
 using Sheetly.Core.Infrastructure;
 using Sheetly.Core.Internal;
@@ -224,6 +225,9 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 			throw new InvalidOperationException(
 				"Context not initialized. Call InitializeAsync() first.");
 
+		var relationshipMap = GetRelationshipMap();
+		var deferredLinks = FixupNavigations(relationshipMap);
+
 		var allPendingEntities = new List<object>();
 		var allAddedEntities = new List<object>();
 		var allDeletedEntities = new List<object>();
@@ -284,16 +288,116 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 		cancellationToken.ThrowIfCancellationRequested();
 
 		int total = 0;
-		foreach (var set in sets.Values)
+		foreach (var type in relationshipMap.FlushOrder(sets.Keys.ToList()))
 		{
-			total += await ((ISheetsSetInternal)set).SaveChangesInternalAsync();
+			if (!sets.TryGetValue(type, out var setObj)) continue;
+			total += await ((ISheetsSetInternal)setObj).SaveChangesInternalAsync();
+			ResolveDeferredLinks(deferredLinks);
 		}
+
+		if (deferredLinks.Any(l => !l.Resolved))
+			throw new InvalidOperationException(
+				"A required relationship among newly added entities forms a cycle. Set one foreign key explicitly to break it.");
 
 		if (sideEffects.Count > 0)
 			await ExecuteDeleteSideEffectsAsync(sideEffects);
 
 		await Provider.FlushAsync();
 		return total;
+	}
+
+	private RelationshipMap? _relationshipMap;
+	private int _relationshipMapSetCount = -1;
+
+	private RelationshipMap GetRelationshipMap()
+	{
+		if (_relationshipMap is null || _relationshipMapSetCount != sets.Count)
+		{
+			_relationshipMap = RelationshipMap.Build(sets.Keys.ToList(), _currentSnapshot ?? new MigrationSnapshot());
+			_relationshipMapSetCount = sets.Count;
+		}
+		return _relationshipMap;
+	}
+
+	private sealed class DeferredLink(object dependent, ReferenceBinding binding, object principal)
+	{
+		public object Dependent { get; } = dependent;
+		public ReferenceBinding Binding { get; } = binding;
+		public object Principal { get; } = principal;
+		public bool Resolved { get; set; }
+	}
+
+	/// <summary>
+	/// Copies known principal keys into the matching foreign-key properties (EF-style navigation
+	/// fixup). Links whose principal key isn't assigned yet (a tracked new entity) are deferred and
+	/// resolved after that principal is flushed; a dangling navigation throws.
+	/// </summary>
+	private List<DeferredLink> FixupNavigations(RelationshipMap map)
+	{
+		var deferred = new List<DeferredLink>();
+
+		foreach (var (type, setObj) in sets)
+		{
+			var bindings = map.ForDependent(type);
+			if (bindings.Count == 0) continue;
+
+			var set = (ISheetsSetInternal)setObj;
+			foreach (var entity in set.GetTrackedEntities())
+			{
+				if (set.GetEntityState(entity) is EntityState.Deleted or EntityState.Detached) continue;
+
+				foreach (var binding in bindings)
+				{
+					var principal = binding.NavProperty.GetValue(entity);
+					if (principal is null) continue;
+
+					var principalKey = binding.PrincipalKey.GetValue(principal);
+					if (!IsDefaultKey(principalKey))
+					{
+						SetForeignKey(binding, entity, principalKey);
+						continue;
+					}
+
+					var principalSet = sets.TryGetValue(binding.PrincipalType, out var ps) ? (ISheetsSetInternal)ps : null;
+					if (principalSet is not null && principalSet.GetEntityState(principal) == EntityState.Added)
+						deferred.Add(new DeferredLink(entity, binding, principal));
+					else
+						throw new InvalidOperationException(
+							$"Cannot save '{type.Name}': its '{binding.NavProperty.Name}' navigation references a '{binding.PrincipalType.Name}' " +
+							$"that is not tracked and has no key. Add() the '{binding.PrincipalType.Name}' first, or set '{binding.FkProperty.Name}' explicitly.");
+				}
+			}
+		}
+
+		return deferred;
+	}
+
+	private static void ResolveDeferredLinks(List<DeferredLink> links)
+	{
+		foreach (var link in links)
+		{
+			if (link.Resolved) continue;
+			var key = link.Binding.PrincipalKey.GetValue(link.Principal);
+			if (IsDefaultKey(key)) continue;
+			SetForeignKey(link.Binding, link.Dependent, key);
+			link.Resolved = true;
+		}
+	}
+
+	private static void SetForeignKey(ReferenceBinding binding, object entity, object? principalKey)
+	{
+		var fkType = Nullable.GetUnderlyingType(binding.FkProperty.PropertyType) ?? binding.FkProperty.PropertyType;
+		var value = principalKey is null || principalKey.GetType() == fkType
+			? principalKey
+			: Convert.ChangeType(principalKey, fkType);
+		binding.FkProperty.SetValue(entity, value);
+	}
+
+	private static bool IsDefaultKey(object? value)
+	{
+		if (value is null) return true;
+		var type = value.GetType();
+		return type.IsValueType && value.Equals(Activator.CreateInstance(type));
 	}
 
 	/// <summary>
