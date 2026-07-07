@@ -100,6 +100,25 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 
 	public void Remove(T entity) => _trackedEntities[entity] = EntityState.Deleted;
 
+	public void AddRange(params T[] entities) => AddRange((IEnumerable<T>)entities);
+	public void AddRange(IEnumerable<T> entities) { foreach (var e in entities) Add(e); }
+	public void UpdateRange(params T[] entities) => UpdateRange((IEnumerable<T>)entities);
+	public void UpdateRange(IEnumerable<T> entities) { foreach (var e in entities) Update(e); }
+	public void RemoveRange(params T[] entities) => RemoveRange((IEnumerable<T>)entities);
+	public void RemoveRange(IEnumerable<T> entities) { foreach (var e in entities) Remove(e); }
+
+	public ValueTask AddAsync(T entity, CancellationToken cancellationToken = default)
+	{
+		Add(entity);
+		return ValueTask.CompletedTask;
+	}
+
+	public ValueTask AddRangeAsync(IEnumerable<T> entities, CancellationToken cancellationToken = default)
+	{
+		AddRange(entities);
+		return ValueTask.CompletedTask;
+	}
+
 	IEnumerable<object> ISheetsSetInternal.GetDeletedEntities() =>
 		_trackedEntities.Where(x => x.Value == EntityState.Deleted).Select(x => (object)x.Key);
 
@@ -232,10 +251,11 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 	/// <summary>Starts a deferred, composable in-memory query over this set.</summary>
 	public SheetsQueryable<T> AsQueryable() => new(ToListAsync, s => s);
 
-	public SheetsQueryable<T> OrderBy<TKey>(Func<T, TKey> keySelector) => AsQueryable().OrderBy(keySelector);
-	public SheetsQueryable<T> OrderByDescending<TKey>(Func<T, TKey> keySelector) => AsQueryable().OrderByDescending(keySelector);
+	public OrderedSheetsQueryable<T> OrderBy<TKey>(Func<T, TKey> keySelector) => AsQueryable().OrderBy(keySelector);
+	public OrderedSheetsQueryable<T> OrderByDescending<TKey>(Func<T, TKey> keySelector) => AsQueryable().OrderByDescending(keySelector);
 	public SheetsQueryable<T> Skip(int count) => AsQueryable().Skip(count);
 	public SheetsQueryable<T> Take(int count) => AsQueryable().Take(count);
+	public SheetsQueryable<TResult> Select<TResult>(Func<T, TResult> selector) => AsQueryable().Select(selector);
 
 	public async Task<T?> FirstOrDefaultAsync(Func<T, bool>? predicate = null)
 	{
