@@ -10,6 +10,9 @@ public class EntityTypeBuilder<T> : EntityMetadata where T : class
 		return this;
 	}
 
+	/// <summary>EF Core muscle-memory alias for <see cref="HasSheetName"/> — the sheet is the table.</summary>
+	public EntityTypeBuilder<T> ToTable(string name) => HasSheetName(name);
+
 	public EntityTypeBuilder<T> HasKey(Expression<Func<T, object>> keyExpression)
 	{
 		PrimaryKeys.Clear();

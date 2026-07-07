@@ -1,6 +1,6 @@
+using Sheetly.Core.Internal;
 using Sheetly.Core.Migration;
 using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
 using System.Reflection;
 
 namespace Sheetly.Core.Migrations;
@@ -101,23 +101,9 @@ public static class SnapshotBuilder
 		return snapshot;
 	}
 
-	private static string GetTableName(Type entityType)
-	{
-		var tableAttr = entityType.GetCustomAttribute<TableAttribute>();
-		if (tableAttr is not null) return tableAttr.Name;
+	private static string GetTableName(Type entityType) => NamingConventions.GetTableName(entityType);
 
-		var name = entityType.Name;
-		if (name.EndsWith("y")) return name[..^1] + "ies";
-		if (name.EndsWith("s") || name.EndsWith("x") || name.EndsWith("ch") || name.EndsWith("sh"))
-			return name + "es";
-		return name + "s";
-	}
-
-	private static string GetColumnName(PropertyInfo prop)
-	{
-		var columnAttr = prop.GetCustomAttribute<ColumnAttribute>();
-		return columnAttr?.Name ?? prop.Name;
-	}
+	private static string GetColumnName(PropertyInfo prop) => NamingConventions.GetColumnName(prop);
 
 	private static bool IsPrimaryKey(PropertyInfo prop)
 	{

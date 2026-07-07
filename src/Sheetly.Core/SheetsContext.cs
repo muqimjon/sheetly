@@ -33,6 +33,29 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 
 	protected virtual void OnConfiguring(SheetsOptions options) { }
 
+	/// <summary>
+	/// Returns the tracked set for <typeparamref name="TEntity"/>, mirroring EF Core's
+	/// <c>Set&lt;T&gt;()</c>. Works for any entity in the model, whether or not the context
+	/// declares a <see cref="SheetsSet{T}"/> property for it.
+	/// </summary>
+	public SheetsSet<TEntity> Set<TEntity>() where TEntity : class, new()
+	{
+		if (sets.TryGetValue(typeof(TEntity), out var existing))
+			return (SheetsSet<TEntity>)existing;
+
+		if (Provider is null || _currentSnapshot is null)
+			throw new InvalidOperationException("Context not initialized. Call InitializeAsync() first.");
+
+		var schema = _currentSnapshot.Entities.Values.FirstOrDefault(e => e.ClassName == typeof(TEntity).Name)
+			?? throw new InvalidOperationException(
+				$"Entity type '{typeof(TEntity).Name}' is not part of the model. " +
+				$"Declare a SheetsSet<{typeof(TEntity).Name}> property or add a migration for it.");
+
+		var set = new SheetsSet<TEntity>(Provider, schema, _currentSnapshot.Entities);
+		sets[typeof(TEntity)] = set;
+		return set;
+	}
+
 	public virtual async Task InitializeAsync(ISheetsProvider? provider = null, IMigrationService? migrationService = null)
 	{
 		if (provider is null)

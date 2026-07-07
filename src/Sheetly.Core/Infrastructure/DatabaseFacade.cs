@@ -81,6 +81,10 @@ public class DatabaseFacade(ISheetsProvider provider, IMigrationService? migrati
 		return lastId;
 	}
 
+	/// <summary>Returns the ids of migrations already applied to the store (EF Core parity).</summary>
+	public async Task<IReadOnlyList<string>> GetAppliedMigrationsAsync()
+		=> migrationService is null ? [] : await migrationService.GetAppliedMigrationsAsync();
+
 	public async Task<List<string>> GetPendingMigrationsAsync()
 	{
 		if (migrationService is null) return [];

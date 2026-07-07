@@ -1,4 +1,5 @@
 using Sheetly.Core.Attributes;
+using Sheetly.Core.Internal;
 using Sheetly.Core.Migration;
 using System.Collections.Concurrent;
 using System.ComponentModel.DataAnnotations;
@@ -15,11 +16,9 @@ internal static class EntityMapper
 			t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
 			 .ToDictionary(p => p.Name));
 
-	public static string GetTableName(Type type)
-		=> type.GetCustomAttribute<TableAttribute>()?.Name ?? type.Name;
+	public static string GetTableName(Type type) => NamingConventions.GetTableName(type);
 
-	public static string GetColumnName(PropertyInfo prop)
-		=> prop.GetCustomAttribute<ColumnAttribute>()?.Name ?? prop.Name;
+	public static string GetColumnName(PropertyInfo prop) => NamingConventions.GetColumnName(prop);
 
 	public static bool IsPrimaryKey(PropertyInfo prop)
 	{
