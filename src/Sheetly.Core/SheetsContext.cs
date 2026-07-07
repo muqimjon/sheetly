@@ -20,6 +20,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 	private readonly Dictionary<Type, object> sets = [];
 	private MigrationSnapshot? _currentSnapshot;
 	private ConstraintValidator? _validator;
+	private Diagnostics.SheetlyLogger? _logger;
 
 	private readonly SheetsOptions? _constructorOptions;
 
@@ -78,6 +79,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 			provider = options.Provider ?? throw new InvalidOperationException(
 				"ISheetsProvider not configured. Call UseGoogleSheets in OnConfiguring or pass SheetsContextOptions via constructor.");
 			migrationService ??= options.MigrationService;
+			_logger = options.Logger;
 		}
 
 		this.Provider = provider;
@@ -303,6 +305,10 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 			await ExecuteDeleteSideEffectsAsync(sideEffects);
 
 		await Provider.FlushAsync();
+
+		_logger?.Log(Diagnostics.SheetlyLogLevel.Information,
+			$"SaveChanges: {allAddedEntities.Count} added, {allModifiedEntities.Count} modified, {allDeletedEntities.Count} deleted ({total} row op(s)).");
+
 		return total;
 	}
 

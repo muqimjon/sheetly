@@ -1,5 +1,6 @@
 using ClosedXML.Excel;
 using Sheetly.Core.Abstractions;
+using Sheetly.Core.Diagnostics;
 using System.Globalization;
 
 namespace Sheetly.Excel;
@@ -8,11 +9,14 @@ namespace Sheetly.Excel;
 /// ISheetsProvider implementation backed by a local .xlsx file via ClosedXML.
 /// All operations are synchronous file I/O wrapped in Task for API compatibility.
 /// </summary>
-public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyncDisposable
+public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyncDisposable, ISupportsLogging
 {
 	private readonly string _filePath = Path.GetFullPath(filePath);
 	private XLWorkbook? _workbook;
 	private bool _dirty;
+	private SheetlyLogger? _logger;
+
+	public void SetLogger(SheetlyLogger logger) => _logger = logger;
 
 	// Serializes id generation per file across all contexts in this process.
 	// Cross-process access to the same .xlsx is not supported (no atomic increment).
@@ -448,6 +452,7 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 
 		_workbook.SaveAs(_filePath);
 		_dirty = false;
+		_logger?.Log(SheetlyLogLevel.Debug, $"Saved workbook '{_filePath}'.");
 	}
 
 	private static int GetNextEmptyRow(IXLWorksheet ws)

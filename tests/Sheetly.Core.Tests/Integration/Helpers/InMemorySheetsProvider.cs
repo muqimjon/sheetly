@@ -1,4 +1,5 @@
 using Sheetly.Core.Abstractions;
+using Sheetly.Core.Diagnostics;
 using System.Globalization;
 
 namespace Sheetly.Core.Tests.Integration.Helpers;
@@ -9,8 +10,11 @@ namespace Sheetly.Core.Tests.Integration.Helpers;
 /// Row indices follow the same 1-based convention as GoogleSheetProvider:
 ///   row 1 = header row, row 2 = first data row.
 /// </summary>
-public sealed class InMemorySheetsProvider : ISheetsProvider
+public sealed class InMemorySheetsProvider : ISheetsProvider, ISupportsLogging
 {
+	public SheetlyLogger? Logger { get; private set; }
+	public void SetLogger(SheetlyLogger logger) => Logger = logger;
+
 	private readonly Dictionary<string, List<IList<object>>> _sheets =
 		new(StringComparer.OrdinalIgnoreCase);
 

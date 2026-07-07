@@ -5,15 +5,20 @@ using Google.Apis.Sheets.v4;
 using Google.Apis.Sheets.v4.Data;
 using Microsoft.Extensions.Configuration;
 using Sheetly.Core.Abstractions;
+using Sheetly.Core.Diagnostics;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 
 namespace Sheetly.Google;
 
-public class GoogleSheetProvider : ISheetsProvider
+public class GoogleSheetProvider : ISheetsProvider, ISupportsLogging
 {
 	private readonly CredentialRotator<SheetsService> _rotator;
 	private readonly string _spreadsheetId;
+	private SheetlyLogger? _logger;
+
+	public void SetLogger(SheetlyLogger logger) => _logger = logger;
 
 	private Dictionary<string, int> _sheetCache = [];
 	private const int MaxRetries = 5;
@@ -43,11 +48,16 @@ public class GoogleSheetProvider : ISheetsProvider
 
 			try
 			{
-				return await requestFactory(svc).ExecuteAsync();
+				var stopwatch = _logger is not null ? Stopwatch.StartNew() : null;
+				var result = await requestFactory(svc).ExecuteAsync();
+				if (stopwatch is not null)
+					_logger!.Log(SheetlyLogLevel.Debug, $"Sheets API call OK in {stopwatch.ElapsedMilliseconds}ms (credential {idx + 1}/{_rotator.Services.Length}).");
+				return result;
 			}
 			catch (global::Google.GoogleApiException ex)
 				when (ex.HttpStatusCode == System.Net.HttpStatusCode.TooManyRequests)
 			{
+				_logger?.Log(SheetlyLogLevel.Warning, $"Rate limited (429) on credential {idx + 1}/{_rotator.Services.Length}; rotating.");
 				_rotator.MarkRateLimited(idx);
 			}
 			catch (global::Google.GoogleApiException ex)
