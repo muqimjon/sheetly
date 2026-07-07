@@ -227,19 +227,29 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 	{
 		if (_pkColumn is null) return default;
 
-		var keyStr = keyValue.ToString()!;
+		var headers = await GetHeadersAsync();
+		if (headers.Count == 0) return default;
 
-		var rowIndex = await provider.FindRowIndexByKeyAsync(schema.TableName, keyStr);
+		var pkIndex = ResolvePkColumnIndex(headers);
+		var keyStr = SheetsValueConverter.ToKeyString(keyValue);
+
+		var rowIndex = await provider.FindRowIndexByKeyAsync(schema.TableName, keyStr, pkIndex);
 		if (rowIndex < 0) return default;
 
 		var rowData = await provider.GetRowByIndexAsync(schema.TableName, rowIndex);
 		if (rowData is null) return default;
 
-		var headers = await GetHeadersAsync();
-		if (headers.Count == 0) return default;
-
 		var entity = EntityMapper.MapFromRow<T>(rowData, headers, schema);
 		return _asNoTracking ? entity : TrackLoaded(entity, rowIndex);
+	}
+
+	private int ResolvePkColumnIndex(List<string> headers)
+	{
+		for (int i = 0; i < headers.Count; i++)
+			if (_pkColumn is not null && headers[i].Equals(_pkColumn.Name, StringComparison.OrdinalIgnoreCase))
+				return i;
+		throw new InvalidOperationException(
+			$"Primary key column '{_pkColumn?.Name}' is missing from sheet '{schema.TableName}'. Apply pending migrations with 'dotnet sheetly database update'.");
 	}
 
 	public async Task<T?> FindAsync(params object[] keyValues)
@@ -421,7 +431,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		{
 			if (_pkColumn is not null && _pkColumn.IsAutoIncrement)
 			{
-				long nextId = await provider.GetAndIncrementIdAsync(schema.TableName, toAdd.Count);
+				long nextId = await provider.GetAndIncrementIdAsync(schema.TableName, toAdd.Count, ResolvePkColumnIndex(headers));
 				var batchRows = new List<IList<object>>(toAdd.Count);
 				var pkProp = typeof(T).GetProperty(_pkColumn.PropertyName);
 				foreach (var item in toAdd)

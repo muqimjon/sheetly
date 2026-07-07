@@ -5,6 +5,7 @@ using Google.Apis.Sheets.v4;
 using Google.Apis.Sheets.v4.Data;
 using Microsoft.Extensions.Configuration;
 using Sheetly.Core.Abstractions;
+using System.Globalization;
 using System.Text.Json;
 
 namespace Sheetly.Google;
@@ -239,23 +240,32 @@ public class GoogleSheetProvider : ISheetsProvider
 
 	public async Task<List<IList<object>>> GetAllRowsAsync(string sheetName)
 	{
-		var response = await ExecuteWithFailoverAsync(
-			svc => svc.Spreadsheets.Values.Get(_spreadsheetId, $"{QuoteSheet(sheetName)}"));
+		var response = await ExecuteWithFailoverAsync(svc =>
+		{
+			var req = svc.Spreadsheets.Values.Get(_spreadsheetId, $"{QuoteSheet(sheetName)}");
+			req.ValueRenderOption = SpreadsheetsResource.ValuesResource.GetRequest.ValueRenderOptionEnum.UNFORMATTEDVALUE;
+			return req;
+		});
 		return response.Values?.ToList() ?? [];
 	}
 
 	public async Task<IList<object>?> GetRowByIndexAsync(string sheetName, int rowIndex)
 	{
-		var response = await ExecuteWithFailoverAsync(
-			svc => svc.Spreadsheets.Values.Get(_spreadsheetId, $"{QuoteSheet(sheetName)}!{rowIndex}:{rowIndex}"));
+		var response = await ExecuteWithFailoverAsync(svc =>
+		{
+			var req = svc.Spreadsheets.Values.Get(_spreadsheetId, $"{QuoteSheet(sheetName)}!{rowIndex}:{rowIndex}");
+			req.ValueRenderOption = SpreadsheetsResource.ValuesResource.GetRequest.ValueRenderOptionEnum.UNFORMATTEDVALUE;
+			return req;
+		});
 		return response.Values?.FirstOrDefault();
 	}
 
-	public async Task<int> FindRowIndexByKeyAsync(string sheetName, string keyValue)
+	public async Task<int> FindRowIndexByKeyAsync(string sheetName, string keyValue, int keyColumnIndex)
 	{
+		var col = GetColumnLetter(keyColumnIndex + 1);
 		var response = await ExecuteWithFailoverAsync(svc =>
 		{
-			var req = svc.Spreadsheets.Values.Get(_spreadsheetId, $"{QuoteSheet(sheetName)}!A:A");
+			var req = svc.Spreadsheets.Values.Get(_spreadsheetId, $"{QuoteSheet(sheetName)}!{col}:{col}");
 			req.ValueRenderOption = SpreadsheetsResource.ValuesResource.GetRequest.ValueRenderOptionEnum.UNFORMATTEDVALUE;
 			return req;
 		});
@@ -263,12 +273,20 @@ public class GoogleSheetProvider : ISheetsProvider
 		if (response.Values is null) return -1;
 		for (int i = 1; i < response.Values.Count; i++)
 		{
-			var cell = response.Values[i].Count > 0 ? response.Values[i][0]?.ToString() : null;
+			var cell = response.Values[i].Count > 0 ? KeyText(response.Values[i][0]) : null;
 			if (cell == keyValue)
 				return i + 1;
 		}
 		return -1;
 	}
+
+	private static string KeyText(object? cell) => cell switch
+	{
+		null => "",
+		double d when d == Math.Floor(d) && !double.IsInfinity(d) => ((long)d).ToString(CultureInfo.InvariantCulture),
+		IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
+		_ => cell.ToString() ?? ""
+	};
 
 	public async Task AppendRowAsync(string sheetName, IList<object> row)
 	{
@@ -276,12 +294,12 @@ public class GoogleSheetProvider : ISheetsProvider
 		await ExecuteWithFailoverAsync(svc =>
 		{
 			var req = svc.Spreadsheets.Values.Append(vr, _spreadsheetId, $"{QuoteSheet(sheetName)}!A1");
-			req.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
+			req.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.RAW;
 			return req;
 		});
 	}
 
-	public async Task<long> GetAndIncrementIdAsync(string tableName, int count = 1)
+	public async Task<long> GetAndIncrementIdAsync(string tableName, int count, int pkColumnIndex)
 	{
 		var gate = _idLocks.GetOrAdd(_spreadsheetId, _ => new SemaphoreSlim(1, 1));
 		await gate.WaitAsync();
@@ -297,13 +315,13 @@ public class GoogleSheetProvider : ISheetsProvider
 
 				int spreadsheetRow = i + 1;
 				var rawId = await GetValueAsync("__SheetlySchema__", $"AC{spreadsheetRow}");
-				long.TryParse(rawId?.ToString(), out long currentId);
+				long.TryParse(KeyText(rawId), out long currentId);
 
 				if (currentId == 0)
 				{
 					var dataRows = await GetAllRowsAsync(tableName);
 					for (int j = 1; j < dataRows.Count; j++)
-						if (dataRows[j].Count > 0 && long.TryParse(dataRows[j][0]?.ToString(), out var did) && did > currentId)
+						if (dataRows[j].Count > pkColumnIndex && long.TryParse(KeyText(dataRows[j][pkColumnIndex]), out var did) && did > currentId)
 							currentId = did;
 				}
 
@@ -324,7 +342,7 @@ public class GoogleSheetProvider : ISheetsProvider
 		await ExecuteWithFailoverAsync(svc =>
 		{
 			var req = svc.Spreadsheets.Values.Append(vr, _spreadsheetId, $"{QuoteSheet(sheetName)}!A1");
-			req.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
+			req.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.RAW;
 			return req;
 		});
 	}
@@ -337,7 +355,7 @@ public class GoogleSheetProvider : ISheetsProvider
 		await ExecuteWithFailoverAsync(svc =>
 		{
 			var req = svc.Spreadsheets.Values.Update(valueRange, _spreadsheetId, range);
-			req.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
+			req.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.RAW;
 			return req;
 		});
 	}
@@ -350,6 +368,20 @@ public class GoogleSheetProvider : ISheetsProvider
 			DeleteDimension = new DeleteDimensionRequest
 			{
 				Range = new DimensionRange { SheetId = sheetId, Dimension = "ROWS", StartIndex = rowIndex - 1, EndIndex = rowIndex }
+			}
+		};
+		var batchBody = new BatchUpdateSpreadsheetRequest { Requests = [deleteRequest] };
+		await ExecuteWithFailoverAsync(svc => svc.Spreadsheets.BatchUpdate(batchBody, _spreadsheetId));
+	}
+
+	public async Task DeleteColumnAsync(string sheetName, int columnIndex)
+	{
+		var sheetId = await GetSheetIdInternal(sheetName);
+		var deleteRequest = new Request
+		{
+			DeleteDimension = new DeleteDimensionRequest
+			{
+				Range = new DimensionRange { SheetId = sheetId, Dimension = "COLUMNS", StartIndex = columnIndex, EndIndex = columnIndex + 1 }
 			}
 		};
 		var batchBody = new BatchUpdateSpreadsheetRequest { Requests = [deleteRequest] };
@@ -484,15 +516,19 @@ public class GoogleSheetProvider : ISheetsProvider
 		await ExecuteWithFailoverAsync(svc =>
 		{
 			var req = svc.Spreadsheets.Values.Update(vr, _spreadsheetId, $"{QuoteSheet(sheetName)}!{range}");
-			req.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
+			req.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.RAW;
 			return req;
 		});
 	}
 
 	public async Task<object?> GetValueAsync(string sheetName, string range)
 	{
-		var response = await ExecuteWithFailoverAsync(
-			svc => svc.Spreadsheets.Values.Get(_spreadsheetId, $"{QuoteSheet(sheetName)}!{range}"));
+		var response = await ExecuteWithFailoverAsync(svc =>
+		{
+			var req = svc.Spreadsheets.Values.Get(_spreadsheetId, $"{QuoteSheet(sheetName)}!{range}");
+			req.ValueRenderOption = SpreadsheetsResource.ValuesResource.GetRequest.ValueRenderOptionEnum.UNFORMATTEDVALUE;
+			return req;
+		});
 		return response.Values?.FirstOrDefault()?.FirstOrDefault();
 	}
 

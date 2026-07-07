@@ -257,7 +257,10 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 
 	private async Task DropColumnAsync(DropColumnOperation op)
 	{
-		Console.WriteLine($"Warning: DropColumn '{op.Table}.{op.Name}' requires manual intervention in Google Sheets.");
+		var headerRow = await provider.GetRowByIndexAsync(op.Table, 1);
+		int idx = headerRow?.ToList().FindIndex(h => h?.ToString() == op.Name) ?? -1;
+		if (idx >= 0)
+			await provider.DeleteColumnAsync(op.Table, idx);
 		await RemoveFromSchemaTableAsync(op.Table, op.Name);
 	}
 

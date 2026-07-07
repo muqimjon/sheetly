@@ -2,7 +2,6 @@ using Sheetly.Core.Attributes;
 using Sheetly.Core.Migration;
 using System.Collections.Concurrent;
 using System.ComponentModel.DataAnnotations;
-using System.Globalization;
 using System.Reflection;
 
 namespace Sheetly.Core.Mapping;
@@ -62,35 +61,10 @@ internal static class EntityMapper
 
 			var value = props.TryGetValue(colSchema.PropertyName, out var prop)
 				? prop.GetValue(entity) : null;
-			row[i] = FormatValueForSheet(value);
+			row[i] = SheetsValueConverter.ToCell(value);
 		}
 		return row;
 	}
-
-	private static object FormatValueForSheet(object? value)
-	{
-		if (value is null) return string.Empty;
-		if (value is string s) return EscapeFormulaPrefix(s);
-		if (value is bool b) return b ? "TRUE" : "FALSE";
-		if (value is DateTime dt) return dt.ToString("O", CultureInfo.InvariantCulture);
-		if (value is DateTimeOffset dto) return dto.ToString("O", CultureInfo.InvariantCulture);
-		if (value is Enum e) return EscapeFormulaPrefix(e.ToString());
-		if (value is decimal dec) return dec.ToString(CultureInfo.InvariantCulture);
-		if (value is double dbl) return dbl.ToString("R", CultureInfo.InvariantCulture);
-		if (value is float flt) return flt.ToString("R", CultureInfo.InvariantCulture);
-		if (value is char c) return EscapeFormulaPrefix(c.ToString());
-		return EscapeFormulaPrefix(value.ToString() ?? string.Empty);
-	}
-
-	/// <summary>
-	/// Prevents spreadsheet formula injection: user strings starting with a formula trigger
-	/// or control character get a leading apostrophe, which USER_ENTERED input consumes as
-	/// a text marker — the stored value round-trips unchanged but is never parsed as a formula.
-	/// </summary>
-	private static string EscapeFormulaPrefix(string value)
-		=> value.Length > 0 && value[0] is '=' or '+' or '-' or '@' or '\'' or '\t' or '\r' or '\n'
-			? "'" + value
-			: value;
 
 	public static T MapFromRow<T>(IList<object> row, IList<string> actualHeaders, EntitySchema schema) where T : class, new()
 	{
@@ -104,7 +78,7 @@ internal static class EntityMapper
 				&& props.TryGetValue(colSchema.PropertyName, out var prop)
 				&& prop.CanWrite && i < row.Count)
 			{
-				prop.SetValue(entity, ConvertValue(row[i]?.ToString(), prop.PropertyType, colSchema.PropertyName));
+				prop.SetValue(entity, SheetsValueConverter.FromCell(row[i], prop.PropertyType, colSchema.PropertyName));
 			}
 		}
 		return entity;
@@ -119,39 +93,4 @@ internal static class EntityMapper
 		return null;
 	}
 
-	private static object? ConvertValue(string? value, Type targetType, string columnName)
-	{
-		if (string.IsNullOrWhiteSpace(value))
-			return targetType.IsValueType ? Activator.CreateInstance(targetType) : null;
-
-		var underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
-
-		try
-		{
-			if (underlyingType.IsEnum) return Enum.Parse(underlyingType, value, ignoreCase: true);
-			if (underlyingType == typeof(Guid)) return Guid.Parse(value);
-			if (underlyingType == typeof(DateTime)) return DateTime.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
-			if (underlyingType == typeof(DateTimeOffset)) return DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
-			if (underlyingType == typeof(TimeSpan)) return TimeSpan.Parse(value, CultureInfo.InvariantCulture);
-
-			if (underlyingType == typeof(decimal)) return decimal.Parse(value, NumberStyles.Any, CultureInfo.InvariantCulture);
-			if (underlyingType == typeof(double)) return double.Parse(value, NumberStyles.Any, CultureInfo.InvariantCulture);
-			if (underlyingType == typeof(float)) return float.Parse(value, NumberStyles.Any, CultureInfo.InvariantCulture);
-
-			if (underlyingType == typeof(bool))
-			{
-				var trimmed = value.Trim();
-				if (trimmed.Equals("TRUE", StringComparison.OrdinalIgnoreCase) || trimmed == "1") return true;
-				if (trimmed.Equals("FALSE", StringComparison.OrdinalIgnoreCase) || trimmed == "0") return false;
-				throw new FormatException($"'{value}' is not a valid boolean.");
-			}
-
-			return Convert.ChangeType(value, underlyingType, CultureInfo.InvariantCulture);
-		}
-		catch (Exception ex) when (ex is FormatException or OverflowException or ArgumentException or InvalidCastException)
-		{
-			throw new InvalidOperationException(
-				$"Failed to convert value '{value}' to type '{underlyingType.Name}' for column '{columnName}'.", ex);
-		}
-	}
 }

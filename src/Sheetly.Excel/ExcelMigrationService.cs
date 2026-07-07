@@ -193,18 +193,10 @@ public class ExcelMigrationService(ISheetsProvider provider) : IMigrationService
 
 	private async Task DropColumnAsync(DropColumnOperation op)
 	{
-		var rows = await provider.GetAllRowsAsync(op.Table);
-		if (rows.Count == 0) return;
-
-		var headers = rows[0].Select(h => h?.ToString() ?? "").ToList();
-		var colIndex = headers.IndexOf(op.Name);
-		if (colIndex < 0) return;
-
-		var newRows = rows.Select(row =>
-			(IList<object>)row.Where((_, i) => i != colIndex).ToList()).ToList();
-
-		await RewriteSheetAsync(op.Table, newRows);
-
+		var headerRow = await provider.GetRowByIndexAsync(op.Table, 1);
+		int colIndex = headerRow?.ToList().FindIndex(h => h?.ToString() == op.Name) ?? -1;
+		if (colIndex >= 0)
+			await provider.DeleteColumnAsync(op.Table, colIndex);
 		await RemoveFromSchemaTableAsync(op.Table, op.Name);
 	}
 

@@ -1,4 +1,5 @@
 using Sheetly.Core.Abstractions;
+using System.Globalization;
 
 namespace Sheetly.Core.Tests.Integration.Helpers;
 
@@ -86,21 +87,37 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 		return Task.FromResult<IList<object>?>(null);
 	}
 
-	public Task<int> FindRowIndexByKeyAsync(string sheetName, string keyValue)
+	public Task<int> FindRowIndexByKeyAsync(string sheetName, string keyValue, int keyColumnIndex)
 	{
 		if (_sheets.TryGetValue(sheetName, out var rows))
 			for (int i = 1; i < rows.Count; i++)
-				if (rows[i].Count > 0 && rows[i][0]?.ToString() == keyValue)
+				if (rows[i].Count > keyColumnIndex && KeyText(rows[i][keyColumnIndex]) == keyValue)
 					return Task.FromResult(i + 1);
 		return Task.FromResult(-1);
 	}
 
+	private static string KeyText(object? cell) => cell switch
+	{
+		null => "",
+		double d when d == Math.Floor(d) && !double.IsInfinity(d) => ((long)d).ToString(CultureInfo.InvariantCulture),
+		IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
+		_ => cell.ToString() ?? ""
+	};
+
+	public Task DeleteColumnAsync(string sheetName, int columnIndex)
+	{
+		if (_sheets.TryGetValue(sheetName, out var rows))
+			foreach (var row in rows)
+				if (columnIndex < row.Count)
+					row.RemoveAt(columnIndex);
+		return Task.CompletedTask;
+	}
+
 	/// <summary>
-	/// Mirrors Google Sheets USER_ENTERED semantics: one leading apostrophe on a string
-	/// is a text marker consumed on write; a null cell is skipped (existing value kept).
+	/// Mirrors Google Sheets RAW semantics: values are stored verbatim (no formula parsing,
+	/// no apostrophe marker); a null cell is skipped on update (existing value kept).
 	/// </summary>
-	private static object CellValue(object? value) =>
-		value is string { Length: > 0 } s && s[0] == '\'' ? s[1..] : value ?? string.Empty;
+	private static object CellValue(object? value) => value ?? string.Empty;
 
 	private static List<object> CellValues(IList<object> row) => row.Select(CellValue).ToList();
 
@@ -121,7 +138,7 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 		return Task.CompletedTask;
 	}
 
-	public async Task<long> GetAndIncrementIdAsync(string tableName, int count = 1)
+	public async Task<long> GetAndIncrementIdAsync(string tableName, int count, int pkColumnIndex)
 	{
 		var schemaRows = await GetAllRowsAsync("__SheetlySchema__");
 		for (int i = 1; i < schemaRows.Count; i++)
@@ -139,7 +156,7 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 			{
 				if (_sheets.TryGetValue(tableName, out var dataRows))
 					for (int j = 1; j < dataRows.Count; j++)
-						if (dataRows[j].Count > 0 && long.TryParse(dataRows[j][0]?.ToString(), out var did) && did > currentId)
+						if (dataRows[j].Count > pkColumnIndex && long.TryParse(KeyText(dataRows[j][pkColumnIndex]), out var did) && did > currentId)
 							currentId = did;
 			}
 

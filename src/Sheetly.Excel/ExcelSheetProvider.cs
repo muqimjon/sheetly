@@ -1,5 +1,6 @@
 using ClosedXML.Excel;
 using Sheetly.Core.Abstractions;
+using System.Globalization;
 
 namespace Sheetly.Excel;
 
@@ -59,7 +60,7 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 		{
 			var cells = new List<object>();
 			for (int c = 1; c <= lastCol; c++)
-				cells.Add(row.Cell(c).GetValue<string>());
+				cells.Add(CellObject(row.Cell(c)));
 			result.Add(cells);
 		}
 
@@ -79,12 +80,12 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 		int lastCol = rangeUsed.LastColumn().ColumnNumber();
 		var cells = new List<object>();
 		for (int c = 1; c <= lastCol; c++)
-			cells.Add(ws.Cell(rowIndex, c).GetValue<string>());
+			cells.Add(CellObject(ws.Cell(rowIndex, c)));
 
 		return Task.FromResult<IList<object>?>(cells);
 	}
 
-	public Task<int> FindRowIndexByKeyAsync(string sheetName, string keyValue)
+	public Task<int> FindRowIndexByKeyAsync(string sheetName, string keyValue, int keyColumnIndex)
 	{
 		EnsureWorkbook();
 		if (!_workbook!.TryGetWorksheet(sheetName, out var ws))
@@ -97,19 +98,61 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 		int lastRow = rangeUsed.LastRow().RowNumber();
 		for (int r = 2; r <= lastRow; r++)
 		{
-			if (ws.Cell(r, 1).GetValue<string>() == keyValue)
+			if (KeyText(ws.Cell(r, keyColumnIndex + 1)) == keyValue)
 				return Task.FromResult(r);
 		}
 
 		return Task.FromResult(-1);
 	}
 
+	public Task DeleteColumnAsync(string sheetName, int columnIndex)
+	{
+		EnsureWorkbook();
+		if (_workbook!.TryGetWorksheet(sheetName, out var ws))
+		{
+			ws.Column(columnIndex + 1).Delete();
+			Save();
+		}
+		return Task.CompletedTask;
+	}
+
 	/// <summary>
-	/// ClosedXML itself consumes one leading apostrophe as a text (quote-prefix) marker,
-	/// mirroring Google Sheets USER_ENTERED — so the formula-escape apostrophe is stripped
-	/// natively here; the provider must NOT strip it again.
+	/// Writes a native cell value. Strings go in as text via XLCellValue (never parsed as a
+	/// formula), numbers and booleans stay typed; nothing else reaches here (the core sends
+	/// dates/guids/enums as strings). Mirrors the RAW/native contract of the Google provider.
 	/// </summary>
-	private static string CellText(object? value) => value?.ToString() ?? "";
+	private static void SetCell(IXLCell cell, object value)
+	{
+		switch (value)
+		{
+			case bool b: cell.Value = b; break;
+			case string s: cell.Value = s; break;
+			case byte or sbyte or short or ushort or int or uint or long or ulong or float or double or decimal:
+				cell.Value = Convert.ToDouble(value, CultureInfo.InvariantCulture); break;
+			default: cell.Value = value.ToString() ?? string.Empty; break;
+		}
+	}
+
+	private static object CellObject(IXLCell cell)
+	{
+		var v = cell.Value;
+		return v.Type switch
+		{
+			XLDataType.Boolean => v.GetBoolean(),
+			XLDataType.Number => v.GetNumber(),
+			XLDataType.DateTime => v.GetDateTime(),
+			XLDataType.TimeSpan => v.GetTimeSpan(),
+			XLDataType.Text => v.GetText(),
+			_ => string.Empty
+		};
+	}
+
+	private static string KeyText(IXLCell cell) => CellObject(cell) switch
+	{
+		double d when d == Math.Floor(d) && !double.IsInfinity(d) => ((long)d).ToString(CultureInfo.InvariantCulture),
+		IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
+		var o => o.ToString() ?? string.Empty
+	};
 
 	public Task AppendRowAsync(string sheetName, IList<object> row)
 	{
@@ -119,7 +162,7 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 
 		for (int i = 0; i < row.Count; i++)
 			if (row[i] is not null)
-				ws.Cell(nextRow, i + 1).Value = CellText(row[i]);
+				SetCell(ws.Cell(nextRow, i + 1), row[i]);
 
 		Save();
 		return Task.CompletedTask;
@@ -137,7 +180,7 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 		{
 			for (int i = 0; i < row.Count; i++)
 				if (row[i] is not null)
-					ws.Cell(nextRow, i + 1).Value = CellText(row[i]);
+					SetCell(ws.Cell(nextRow, i + 1), row[i]);
 			nextRow++;
 		}
 
@@ -145,7 +188,7 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 		return Task.CompletedTask;
 	}
 
-	public async Task<long> GetAndIncrementIdAsync(string tableName, int count = 1)
+	public async Task<long> GetAndIncrementIdAsync(string tableName, int count, int pkColumnIndex)
 	{
 		var gate = _idLocks.GetOrAdd(_filePath, _ => new SemaphoreSlim(1, 1));
 		await gate.WaitAsync();
@@ -167,7 +210,7 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 				{
 					var dataRows = await GetAllRowsAsync(tableName);
 					for (int j = 1; j < dataRows.Count; j++)
-						if (dataRows[j].Count > 0 && long.TryParse(dataRows[j][0]?.ToString(), out var did) && did > currentId)
+						if (dataRows[j].Count > pkColumnIndex && long.TryParse(dataRows[j][pkColumnIndex]?.ToString(), out var did) && did > currentId)
 							currentId = did;
 				}
 
@@ -190,7 +233,7 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 
 		for (int i = 0; i < row.Count; i++)
 			if (row[i] is not null)
-				ws.Cell(rowIndex, i + 1).Value = CellText(row[i]);
+				SetCell(ws.Cell(rowIndex, i + 1), row[i]);
 
 		Save();
 		return Task.CompletedTask;
@@ -291,7 +334,7 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 		EnsureWorkbook();
 		var ws = GetWorksheet(sheetName);
 		var (row, col) = ParseCellAddress(range);
-		ws.Cell(row, col).Value = CellText(value);
+		SetCell(ws.Cell(row, col), value);
 		Save();
 		return Task.CompletedTask;
 	}
@@ -303,7 +346,7 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 			return Task.FromResult<object?>(null);
 
 		var (row, col) = ParseCellAddress(range);
-		return Task.FromResult<object?>(ws.Cell(row, col).GetValue<string>());
+		return Task.FromResult<object?>(CellObject(ws.Cell(row, col)));
 	}
 
 	public Task AddDataValidationAsync(string sheetName, int columnIndex, string message)
