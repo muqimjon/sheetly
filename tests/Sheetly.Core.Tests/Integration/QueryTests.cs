@@ -245,6 +245,42 @@ public class QueryTests
 	}
 
 	[Fact]
+	public async Task AsNoTracking_DoesNotLeakIntoNextQuery()
+	{
+		var (ctx, _) = await TestContextFactory.CreateAsync();
+		ctx.Categories.Add(new Category { Name = "Original" });
+		await ctx.SaveChangesAsync();
+
+		// A no-tracking read must not turn the following tracked read into no-tracking.
+		_ = await ctx.Categories.AsNoTracking().FindAsync(1);
+
+		var tracked = await ctx.Categories.FindAsync(1);
+		tracked!.Name = "Edited";
+		int changes = await ctx.SaveChangesAsync();
+
+		Assert.Equal(1, changes);
+		var reloaded = await ctx.Categories.AsNoTracking().FindAsync(1);
+		Assert.Equal("Edited", reloaded!.Name);
+	}
+
+	[Fact]
+	public async Task Include_DoesNotLeakIntoNextQuery()
+	{
+		var (ctx, provider) = await TestContextFactory.CreateAsync();
+		var category = new Category { Name = "Electronics" };
+		ctx.Categories.Add(category);
+		await ctx.SaveChangesAsync();
+		ctx.Products.Add(new Product { Title = "TV", Price = 399m, CategoryId = category.Id });
+		await ctx.SaveChangesAsync();
+
+		_ = await ctx.Categories.AsNoTracking().Include("Products").ToListAsync();
+
+		// The include must not be applied again to this plain query (no identity map with AsNoTracking).
+		var plain = await ctx.Categories.AsNoTracking().ToListAsync();
+		Assert.All(plain, c => Assert.True(c.Products is null || c.Products.Count == 0));
+	}
+
+	[Fact]
 	public async Task Include_CategoryWithNoProducts_EmptyCollection()
 	{
 		var (ctx, _) = await TestContextFactory.CreateAsync();

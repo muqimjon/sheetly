@@ -58,6 +58,18 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		return this;
 	}
 
+	/// <summary>
+	/// Reads the pending per-query state (AsNoTracking / Include) and immediately resets it, so a
+	/// query's options can never leak into the next query on the same set.
+	/// </summary>
+	private (bool noTracking, List<string> includes) ConsumeQueryState()
+	{
+		var state = (_asNoTracking, _includes.ToList());
+		_asNoTracking = false;
+		_includes.Clear();
+		return state;
+	}
+
 	public SheetsSet<T> Include(string propertyName)
 	{
 		_includes.Add(propertyName);
@@ -188,6 +200,8 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 
 	public async Task<List<T>> ToListAsync()
 	{
+		var (noTracking, includes) = ConsumeQueryState();
+
 		var rows = await provider.GetAllRowsAsync(schema.TableName);
 		if (rows.Count <= 1) return [];
 
@@ -200,14 +214,12 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		{
 			if (SheetsValueConverter.IsBlankRow(rows[i])) continue;
 			var entity = EntityMapper.MapFromRow<T>(rows[i], headers, schema);
-			result.Add(_asNoTracking ? entity : TrackLoaded(entity, i + 1));
+			result.Add(noTracking ? entity : TrackLoaded(entity, i + 1));
 		}
 
-		if (_includes.Count > 0)
-			await ProcessIncludes(result);
+		if (includes.Count > 0)
+			await ProcessIncludes(result, includes);
 
-		_asNoTracking = false;
-		_includes.Clear();
 		return result;
 	}
 
@@ -233,6 +245,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 
 	public async Task<T?> FindAsync(object keyValue)
 	{
+		var (noTracking, _) = ConsumeQueryState();
 		if (_pkColumn is null) return default;
 
 		var headers = await GetHeadersAsync();
@@ -248,7 +261,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		if (rowData is null) return default;
 
 		var entity = EntityMapper.MapFromRow<T>(rowData, headers, schema);
-		return _asNoTracking ? entity : TrackLoaded(entity, rowIndex);
+		return noTracking ? entity : TrackLoaded(entity, rowIndex);
 	}
 
 	private int ResolvePkColumnIndex(List<string> headers)
@@ -284,6 +297,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 	{
 		if (predicate is null)
 		{
+			ConsumeQueryState();
 			var rows = await provider.GetAllRowsAsync(schema.TableName);
 			return Math.Max(0, rows.Count - 1);
 		}
@@ -295,6 +309,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 	{
 		if (predicate is null)
 		{
+			ConsumeQueryState();
 			var rows = await provider.GetAllRowsAsync(schema.TableName);
 			return rows.Count > 1;
 		}
@@ -302,11 +317,11 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		return all.Any(predicate);
 	}
 
-	private async Task ProcessIncludes(List<T> entities)
+	private async Task ProcessIncludes(List<T> entities, List<string> includes)
 	{
 		var loadedTables = new Dictionary<string, List<object>>();
 
-		foreach (var includePath in _includes)
+		foreach (var includePath in includes)
 		{
 			var prop = typeof(T).GetProperty(includePath);
 			if (prop is null) continue;

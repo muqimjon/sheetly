@@ -12,6 +12,7 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 {
 	private readonly string _filePath = Path.GetFullPath(filePath);
 	private XLWorkbook? _workbook;
+	private bool _dirty;
 
 	// Serializes id generation per file across all contexts in this process.
 	// Cross-process access to the same .xlsx is not supported (no atomic increment).
@@ -398,8 +399,15 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 		return Task.CompletedTask;
 	}
 
+	public Task FlushAsync()
+	{
+		Persist();
+		return Task.CompletedTask;
+	}
+
 	public void Dispose()
 	{
+		Persist();
 		_workbook?.Dispose();
 		_workbook = null;
 	}
@@ -424,15 +432,22 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 		return ws;
 	}
 
-	private void Save()
+	// Mutations only mark the workbook dirty; the file is written once in Persist()
+	// (via FlushAsync or Dispose), turning a per-write SaveAs into a single save per batch.
+	private void Save() => _dirty = true;
+
+	private void Persist()
 	{
+		if (!_dirty || _workbook is null) return;
+
 		// Excel requires at least one visible worksheet; if only hidden system sheets remain
 		// (e.g. after rolling back every migration), unhide one so the file stays valid.
-		if (_workbook!.Worksheets.Count > 0 &&
+		if (_workbook.Worksheets.Count > 0 &&
 			!_workbook.Worksheets.Any(w => w.Visibility == XLWorksheetVisibility.Visible))
 			_workbook.Worksheets.First().Visibility = XLWorksheetVisibility.Visible;
 
 		_workbook.SaveAs(_filePath);
+		_dirty = false;
 	}
 
 	private static int GetNextEmptyRow(IXLWorksheet ws)

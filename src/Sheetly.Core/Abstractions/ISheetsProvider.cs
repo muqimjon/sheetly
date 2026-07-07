@@ -47,6 +47,12 @@ public interface ISheetsProvider : IDisposable
 		if (tail.Count > 0) await AppendRowsAsync(sheetName, tail);
 	}
 
+	/// <summary>
+	/// Persists any writes the provider has buffered. Providers that write through on every
+	/// call (the default) treat this as a no-op; buffered backends (Excel) save once here.
+	/// </summary>
+	Task FlushAsync() => Task.CompletedTask;
+
 	Task<bool> SheetExistsAsync(string sheetName);
 	Task CreateSheetAsync(string sheetName, IList<string> headers);
 	Task RenameSheetAsync(string oldName, string newName);

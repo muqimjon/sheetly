@@ -359,6 +359,7 @@ public static class DesignTimeOperations
 
 			var facade = new DatabaseFacade(provider, migrationService, contextType);
 			await facade.DropDatabaseAsync();
+			await provider.FlushAsync();
 
 			return JsonSerializer.Serialize(new { success = true });
 		}

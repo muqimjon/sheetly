@@ -66,6 +66,7 @@ public class ExcelMigrationService(ISheetsProvider provider) : IMigrationService
 			await ExecuteOperationAsync(operation);
 
 		await RecordMigrationAsync(migrationId);
+		await provider.FlushAsync();
 	}
 
 	public async Task RevertMigrationAsync(List<MigrationOperation> downOperations, string migrationId)
@@ -76,6 +77,7 @@ public class ExcelMigrationService(ISheetsProvider provider) : IMigrationService
 			await ExecuteOperationAsync(operation);
 
 		await RemoveMigrationFromHistoryAsync(migrationId);
+		await provider.FlushAsync();
 	}
 
 	private async Task RemoveMigrationFromHistoryAsync(string migrationId)

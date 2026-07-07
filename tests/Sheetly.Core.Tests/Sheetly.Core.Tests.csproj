@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Sheetly.Core\Sheetly.Core.csproj" />
     <ProjectReference Include="..\..\src\Sheetly.Google\Sheetly.Google.csproj" />
+    <ProjectReference Include="..\..\src\Sheetly.Excel\Sheetly.Excel.csproj" />
   </ItemGroup>
 
 </Project>

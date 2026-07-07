@@ -258,6 +258,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 		if (sideEffects.Count > 0)
 			await ExecuteDeleteSideEffectsAsync(sideEffects);
 
+		await Provider.FlushAsync();
 		return total;
 	}
 
