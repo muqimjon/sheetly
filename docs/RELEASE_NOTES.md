@@ -1,3 +1,81 @@
+# 🚀 Sheetly v1.3.0 — EF Core Parity, Correctness & Round-Trip
+
+## Entity Framework Core for Spreadsheets
+
+**Release Date:** July 2026
+
+The big one. v1.3.0 makes an EF Core developer feel at home — a full set of familiar APIs — while
+finishing the correctness and round-trip work started in v1.2.1. It is a **major upgrade with
+breaking changes**; see [BREAKING_CHANGES.md](BREAKING_CHANGES.md) before upgrading.
+
+---
+
+## ✨ EF Core parity
+
+- **`Set<T>()`, `IEntityTypeConfiguration<T>` + `ApplyConfiguration` / `ApplyConfigurationsFromAssembly`, and `ToTable(...)`** — the context surface you expect. `ToTable` is an alias for `HasSheetName`.
+- **Range operations & full async LINQ** — `AddRange` / `UpdateRange` / `RemoveRange` / `AddRangeAsync`, and a complete async terminal set on queries: `FirstAsync`, `SingleAsync`, `LastAsync`, `CountAsync(predicate)`, `LongCountAsync`, `AllAsync`, `MaxAsync` / `MinAsync`, `SumAsync` / `AverageAsync`, `ToArrayAsync` / `ToHashSetAsync` / `ToDictionaryAsync`, `AsAsyncEnumerable`, plus composable `Select`, `Distinct` / `DistinctBy`, and `OrderBy(...).ThenBy(...)`.
+- **`Ignore` / `[NotMapped]`** — exclude computed or transient properties from the model, via the fluent `Ignore(e => e.X)` or the BCL `[NotMapped]` attribute.
+- **`EnsureCreated` / `EnsureDeleted` / `CanConnect`** — CLI-free onboarding. Create every model table straight from your POCOs in one call:
+
+  ```csharp
+  await using var ctx = new AppDbContext();   // UseGoogleSheets(...) in OnConfiguring
+  await ctx.Database.EnsureCreatedAsync();     // creates the sheets + schema
+  ctx.Products.Add(new Product { Title = "Hello", Price = 9.99m });
+  await ctx.SaveChangesAsync();
+  ```
+
+- **`Entry` / `ChangeTracker`** — `context.Entry(e)` (State, `CurrentValues` / `OriginalValues`, `Property(name)`, `ReloadAsync`), `context.ChangeTracker` (`Entries()`, `Entries<T>()`, `HasChanges()`, `DetectChanges()`, `Clear()`), plus `set.Attach` / `AttachRange` and `set.Local`.
+- **Navigation fixup + topological save** — set a reference navigation and the foreign key fills itself in, even from a key generated in the same `SaveChanges`:
+
+  ```csharp
+  var cat = new Category { Name = "Tools" };
+  var prod = new Product { Title = "Hammer", Category = cat };  // no CategoryId
+  ctx.Categories.Add(cat);
+  ctx.Products.Add(prod);
+  await ctx.SaveChangesAsync();   // cat gets an Id; prod.CategoryId is filled automatically
+  ```
+
+  Principals are flushed before their dependents. A navigation pointing at an untracked, keyless
+  entity now throws a clear error instead of silently writing a `0` foreign key.
+- **`LogTo`** — EF-style simple logging: `options.UseGoogleSheets(...).LogTo(Console.WriteLine, SheetlyLogLevel.Debug)`. Logs SaveChanges summaries, Google API calls and 429 credential rotation, and Excel saves.
+- **`ISheetsContextFactory<T>` + `AddSheetsContextFactory<T>()`** — the `IDbContextFactory` analog with real async initialization (no sync-over-async), recommended for ASP.NET and background work.
+
+---
+
+## 🔒 Formula injection fully closed + value round-trip
+
+Writes now use Google's **`RAW`** input mode with native values, and reads use **`UNFORMATTED_VALUE`**:
+
+- User strings are stored **verbatim** and are **never** evaluated as formulas — the v1.2.1
+  apostrophe workaround is gone because `RAW` never interprets a leading `=`.
+- Numbers and booleans stay native; `DateTime` / `DateTimeOffset` / `TimeSpan` / `Guid` / `enum` /
+  `char` serialize to invariant ISO/round-trip text, so values round-trip regardless of machine
+  locale (the EU-locale decimal/date corruption is gone). Excel uses typed cell values for the same
+  guarantee.
+
+---
+
+## 🐛 Correctness
+
+- **Change tracking** — entities stay tracked after `SaveChanges` (edit-save-edit works); disconnected `Update`/`Remove` of a missing row now raises `DbUpdateConcurrencyException` instead of a silent no-op; cascade delete is planned before the flush and executed against fresh reads so sibling updates and multi-parent cascades can't corrupt rows.
+- **Column-order integrity** — lookups and id generation resolve the primary-key column by header, so they keep working when the PK isn't in column A; `DropColumn` physically deletes on Google too (parity with Excel).
+- **Validation** — updates that violate a unique constraint now throw; a modified entity no longer conflicts with its own row; foreign-key checks no longer false-positive on a mix of existing and pending parents.
+- **Queries** — `AsNoTracking()` / `Include(...)` options no longer leak into the next query on the same set; blank rows are skipped.
+- **Migrations** — sheet rewrites are near-atomic (`ReplaceSheetDataAsync`) so an interrupted rewrite can't corrupt the bookkeeping sheets; `migrations remove` refuses to delete an applied migration unless `--force`; `migrations list` shows applied/pending status; scaffolding emits navigation properties instead of `[ForeignKey]`.
+- **Excel** — writes are buffered and flushed once per `SaveChanges` / migration / dispose instead of a full file save on every cell write.
+
+---
+
+## 🧹 Housekeeping
+
+Dead code removed (`ScaffoldService`, `ContextResolver`, `ExcelScriptGenerator`, a stray `.bak2`), and
+**`Sheetly.Core` no longer depends on ClosedXML** — a lighter core package.
+
+Deferred to a later release: automatic column-rename detection, fully self-contained `Down()`
+migrations, and a process-wide startup-verification cache for DI.
+
+---
+
 # 🔒 Sheetly v1.2.1 — Security & Correctness Patch
 
 ## Entity Framework Core for Spreadsheets

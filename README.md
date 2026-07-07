@@ -475,6 +475,69 @@ products.First().Price = 999;
 await context.SaveChangesAsync();
 ```
 
+### **EnsureCreated (start without the CLI)**
+
+Create every model table straight from your POCOs — no migrations required for a quick start or a
+throwaway spreadsheet:
+
+```csharp
+await using var context = new AppDbContext();     // UseGoogleSheets/UseExcel in OnConfiguring
+await context.Database.EnsureCreatedAsync();       // creates the sheets + schema if missing
+
+context.Products.Add(new Product { Title = "Hello", Price = 9.99m });
+await context.SaveChangesAsync();
+```
+
+`EnsureCreated` and migrations are mutually exclusive (as in EF Core): if your project has migration
+classes, use `Database.MigrateAsync()` / `dotnet sheetly database update` instead. Also available:
+`Database.EnsureDeletedAsync()` and `Database.CanConnectAsync()`.
+
+### **Navigation Fixup**
+
+Set a reference navigation and the foreign key fills itself in — even from a key generated in the same
+`SaveChanges`. Principals are always written before their dependents.
+
+```csharp
+var category = new Category { Name = "Tools" };
+var product = new Product { Title = "Hammer", Category = category };  // no CategoryId set
+context.Categories.Add(category);
+context.Products.Add(product);
+await context.SaveChangesAsync();   // category gets an Id; product.CategoryId is filled in
+```
+
+### **Entry & ChangeTracker**
+
+```csharp
+var product = await context.Products.FindAsync(1);
+product!.Price = 42m;
+
+var entry = context.Entry(product);
+Console.WriteLine(entry.State);                       // Modified (after DetectChanges)
+Console.WriteLine(entry.OriginalValues["Price"]);     // the loaded value
+Console.WriteLine(entry.Property("Price").IsModified); // true
+await entry.ReloadAsync();                             // re-read this row from the store
+
+if (context.ChangeTracker.HasChanges()) { /* ... */ }
+context.ChangeTracker.Clear();
+```
+
+### **LogTo (simple logging)**
+
+```csharp
+options.UseGoogleSheets("spreadsheet-id", "credentials.json")
+       .LogTo(Console.WriteLine, SheetlyLogLevel.Debug);
+// Logs SaveChanges summaries, Google API calls + 429 credential rotation, and Excel saves.
+```
+
+### **Context Factory (recommended for ASP.NET / background work)**
+
+```csharp
+services.AddSheetsContextFactory<AppDbContext>(o => o.UseGoogleSheets("id", "credentials.json"));
+
+// later — real async initialization, no sync-over-async:
+await using var context = await factory.CreateContextAsync(ct);
+```
+
 ### **Multiple Credentials (API Quota Rotation)**
 
 ```csharp
@@ -534,7 +597,9 @@ Define models → Create migrations → Apply to Sheets → Use context
 - **Never commit `credentials.json`** — keep service-account keys in `.gitignore`, a secrets store, or environment-specific config. Ship a placeholder (`credentials.example.json`) instead.
 - **Share with least privilege** — give the service-account email *Editor* access to only the one spreadsheet Sheetly uses, nothing more.
 - **One service account per environment** — separate keys for dev and production so a leaked dev key can't touch real data.
-- Values that start with `=` or `+` are stored as text literals, so user input can never become a live formula in your sheet.
+- All string values are written in Google's `RAW` mode and stored **verbatim**, so user input — even something like `=IMPORTXML(...)` — is never evaluated as a live formula in your sheet.
+
+> **Excel is a single-writer store.** The `.xlsx` provider buffers writes and saves the whole file once per `SaveChanges` (or on dispose). It assumes one process/context writes the file at a time — concurrent writers to the same file are not supported. Use Google Sheets, or your own locking, for multi-writer scenarios.
 
 ---
 
