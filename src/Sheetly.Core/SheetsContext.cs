@@ -70,7 +70,6 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 		}
 
 		this.Provider = provider;
-		Database = new DatabaseFacade(this.Provider, migrationService, GetType());
 
 		await this.Provider.InitializeAsync();
 
@@ -79,6 +78,8 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 
 		_currentSnapshot = SnapshotBuilder.BuildFromContext(GetType(), modelBuilder.GetMetadata());
 		_validator = new ConstraintValidator(_currentSnapshot);
+
+		Database = new DatabaseFacade(this.Provider, migrationService, GetType(), _currentSnapshot);
 
 		await CheckMigrationSyncAsync();
 		CheckModelSnapshotSync();

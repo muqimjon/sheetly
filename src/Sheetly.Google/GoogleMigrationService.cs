@@ -81,6 +81,16 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 		await provider.FlushAsync();
 	}
 
+	public async Task ApplyOperationsAsync(List<MigrationOperation> operations)
+	{
+		await EnsureSystemTablesExistAsync();
+
+		foreach (var operation in operations)
+			await ExecuteOperationAsync(operation);
+
+		await provider.FlushAsync();
+	}
+
 	private async Task RemoveMigrationFromHistoryAsync(string migrationId)
 	{
 		if (!await provider.SheetExistsAsync(HistoryTable)) return;

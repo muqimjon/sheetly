@@ -6,8 +6,70 @@ using System.Reflection;
 
 namespace Sheetly.Core.Infrastructure;
 
-public class DatabaseFacade(ISheetsProvider provider, IMigrationService? migrationService, Type contextType)
+public class DatabaseFacade(ISheetsProvider provider, IMigrationService? migrationService, Type contextType, MigrationSnapshot? model = null)
 {
+	/// <summary>
+	/// Creates every model table that doesn't yet exist, without recording migration history —
+	/// the EF Core <c>EnsureCreated</c>. Returns <c>true</c> if it created anything. Throws when
+	/// the project uses migrations (the two are mutually exclusive, as in EF Core).
+	/// </summary>
+	public async Task<bool> EnsureCreatedAsync()
+	{
+		if (migrationService is null)
+			throw new InvalidOperationException("No migration service configured. Call UseGoogleSheets or UseExcel in OnConfiguring.");
+		if (model is null)
+			throw new InvalidOperationException("The model is unavailable. Call InitializeAsync() before EnsureCreatedAsync().");
+
+		if (HasMigrations())
+			throw new InvalidOperationException(
+				"EnsureCreated() cannot be used with migrations. Use Database.MigrateAsync() (or 'dotnet sheetly database update') instead.");
+
+		var missing = new MigrationSnapshot();
+		foreach (var (name, entity) in model.Entities)
+			if (!await provider.SheetExistsAsync(name))
+				missing.Entities[name] = entity;
+
+		if (missing.Entities.Count == 0) return false;
+
+		var operations = new ModelDiffer().GetDifferences(null, missing);
+		EnrichOperations(operations, model);
+		await migrationService.ApplyOperationsAsync(operations);
+		return true;
+	}
+
+	/// <summary>
+	/// Drops every model table (EF Core <c>EnsureDeleted</c>). Returns <c>true</c> if any model
+	/// table existed to delete.
+	/// </summary>
+	public async Task<bool> EnsureDeletedAsync()
+	{
+		bool anyExisted = false;
+		if (model is not null)
+			foreach (var name in model.Entities.Keys)
+				if (await provider.SheetExistsAsync(name)) { anyExisted = true; break; }
+
+		await provider.DropDatabaseAsync();
+		await provider.FlushAsync();
+		return anyExisted;
+	}
+
+	/// <summary>Returns whether the backing store is reachable (EF Core <c>CanConnect</c>).</summary>
+	public async Task<bool> CanConnectAsync()
+	{
+		try
+		{
+			await provider.SheetExistsAsync("__SheetlySchema__");
+			return true;
+		}
+		catch
+		{
+			return false;
+		}
+	}
+
+	private bool HasMigrations()
+		=> contextType.Assembly.GetTypes().Any(t => t.IsSubclassOf(typeof(Migrations.Migration)) && !t.IsAbstract);
+
 	public async Task MigrateAsync()
 	{
 		if (migrationService is null)
