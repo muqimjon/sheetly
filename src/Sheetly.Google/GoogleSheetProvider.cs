@@ -416,6 +416,27 @@ public class GoogleSheetProvider : ISheetsProvider
 		await ExecuteWithFailoverAsync(svc => svc.Spreadsheets.BatchUpdate(batchBody, _spreadsheetId));
 	}
 
+	public async Task ReplaceSheetDataAsync(string sheetName, IList<IList<object>> rows)
+	{
+		if (rows.Count == 0)
+		{
+			await ExecuteWithFailoverAsync(svc =>
+				svc.Spreadsheets.Values.Clear(new ClearValuesRequest(), _spreadsheetId, $"{QuoteSheet(sheetName)}!A1:ZZZ"));
+			return;
+		}
+
+		var vr = new ValueRange { Values = rows };
+		await ExecuteWithFailoverAsync(svc =>
+		{
+			var req = svc.Spreadsheets.Values.Update(vr, _spreadsheetId, $"{QuoteSheet(sheetName)}!A1");
+			req.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.RAW;
+			return req;
+		});
+
+		await ExecuteWithFailoverAsync(svc =>
+			svc.Spreadsheets.Values.Clear(new ClearValuesRequest(), _spreadsheetId, $"{QuoteSheet(sheetName)}!A{rows.Count + 1}:ZZZ"));
+	}
+
 	public Task<bool> SheetExistsAsync(string sheetName)
 		=> Task.FromResult(_sheetCache.ContainsKey(sheetName));
 

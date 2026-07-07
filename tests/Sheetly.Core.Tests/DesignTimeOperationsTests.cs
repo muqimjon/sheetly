@@ -197,6 +197,48 @@ namespace Sheetly.Core.Tests
 		}
 
 		[Fact]
+		public void Scaffold_ForeignKey_EmitsNavigationPropertyNotAttribute()
+		{
+			var entity = new EntitySchema
+			{
+				TableName = "Products",
+				Namespace = "App",
+				Columns =
+				[
+					new ColumnSchema { Name = "Id", PropertyName = "Id", DataType = "Int32", IsPrimaryKey = true },
+					new ColumnSchema { Name = "CategoryId", PropertyName = "CategoryId", DataType = "Int32", IsNullable = false, IsForeignKey = true, ForeignKeyTable = "Categories" }
+				]
+			};
+			var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Categories"] = "Category" };
+
+			var code = DesignTimeOperations.GenerateClassCode(entity, "Product", map);
+
+			Assert.Contains("public int CategoryId { get; set; }", code);
+			Assert.Contains("public Category? Category { get; set; }", code);
+			Assert.DoesNotContain("[ForeignKey", code);
+		}
+
+		[Fact]
+		public void Scaffold_ForeignKey_UnknownTarget_EmitsScalarOnly()
+		{
+			var entity = new EntitySchema
+			{
+				TableName = "Products",
+				Namespace = "App",
+				Columns =
+				[
+					new ColumnSchema { Name = "CategoryId", PropertyName = "CategoryId", DataType = "Int32", IsNullable = false, IsForeignKey = true, ForeignKeyTable = "Categories" }
+				]
+			};
+
+			var code = DesignTimeOperations.GenerateClassCode(entity, "Product");
+
+			Assert.Contains("public int CategoryId { get; set; }", code);
+			Assert.DoesNotContain("[ForeignKey", code);
+			Assert.DoesNotContain("Category?", code);
+		}
+
+		[Fact]
 		public void Scaffold_CollidingFileNames_AreSuffixed()
 		{
 			var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

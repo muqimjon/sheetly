@@ -33,6 +33,20 @@ public interface ISheetsProvider : IDisposable
 	Task DeleteColumnAsync(string sheetName, int columnIndex)
 		=> throw new NotSupportedException($"{GetType().Name} does not support column deletion.");
 
+	/// <summary>
+	/// Replaces the entire contents of a sheet (header + data) with <paramref name="rows"/> as
+	/// close to atomically as the backend allows, so an interrupted rewrite can't leave the
+	/// bookkeeping sheets half-written. The default is a non-atomic clear-then-write fallback.
+	/// </summary>
+	async Task ReplaceSheetDataAsync(string sheetName, IList<IList<object>> rows)
+	{
+		await ClearSheetAsync(sheetName);
+		if (rows.Count == 0) return;
+		await UpdateRowAsync(sheetName, 1, rows[0]);
+		var tail = rows.Skip(1).ToList();
+		if (tail.Count > 0) await AppendRowsAsync(sheetName, tail);
+	}
+
 	Task<bool> SheetExistsAsync(string sheetName);
 	Task CreateSheetAsync(string sheetName, IList<string> headers);
 	Task RenameSheetAsync(string oldName, string newName);

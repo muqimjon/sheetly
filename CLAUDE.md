@@ -31,7 +31,7 @@ dotnet run --project src/Sheetly.CLI -- database update
 
 The codebase is split into a **provider-agnostic core** and **swappable provider backends**. The core never talks to Google or Excel directly — it only ever calls `ISheetsProvider`.
 
-- **`Sheetly.Core`** — everything except I/O: `SheetsContext`, `SheetsSet<T>`, the fluent model API (`ModelBuilder` / `EntityTypeBuilder` / `PropertyBuilder`), validation, mapping, and the entire migration engine. Depends on `ClosedXML` only for Excel script generation, not for data access.
+- **`Sheetly.Core`** — everything except I/O: `SheetsContext`, `SheetsSet<T>`, the fluent model API (`ModelBuilder` / `EntityTypeBuilder` / `PropertyBuilder`), validation, mapping, and the entire migration engine. Has no third-party data dependencies (only `Microsoft.Extensions.Configuration`).
 - **`Sheetly.Google`** / **`Sheetly.Excel`** — each implements `ISheetsProvider` (data access) and `IMigrationService` (applying migration operations to that backend). Wired in via `options.UseGoogleSheets(...)` / `options.UseExcel(...)` extension methods.
 - **`Sheetly.DependencyInjection`** — `AddSheetsContext<T>` for ASP.NET Core.
 - **`Sheetly.CLI`** (package id `dotnet-sheetly`) — the migration/scaffold command-line tool, built on `System.CommandLine`.

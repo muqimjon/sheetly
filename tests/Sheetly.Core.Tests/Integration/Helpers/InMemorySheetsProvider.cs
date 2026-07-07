@@ -140,6 +140,14 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 		return Task.FromResult(firstRow);
 	}
 
+	public Task ReplaceSheetDataAsync(string sheetName, IList<IList<object>> rows)
+	{
+		foreach (var row in rows) RawWrites.Add(row.ToList());
+		if (_sheets.ContainsKey(sheetName))
+			_sheets[sheetName] = rows.Select(CellValues).Cast<IList<object>>().ToList();
+		return Task.CompletedTask;
+	}
+
 	public Task<IList<object?>> GetColumnAsync(string sheetName, int columnIndex)
 	{
 		var result = new List<object?>();

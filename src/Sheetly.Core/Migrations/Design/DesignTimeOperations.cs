@@ -105,9 +105,11 @@ public static class DesignTimeOperations
 
 	/// <summary>
 	/// Removes the last migration. Reverts snapshot and deletes migration file.
+	/// Blocks when the migration is already applied to the database (unless <paramref name="force"/>),
+	/// so the local files can't silently drift from the store into an unrecoverable state.
 	/// Returns JSON: { "success":true, "removedFile":"...", "snapshotFile":"..." }
 	/// </summary>
-	public static string RemoveMigration(Type contextType)
+	public static async Task<string> RemoveMigration(Type contextType, bool force = false)
 	{
 		try
 		{
@@ -128,6 +130,12 @@ public static class DesignTimeOperations
 
 			var lastMigrationType = migrationTypes[0].Type;
 			string migrationId = migrationTypes[0].Attr!.Id;
+
+			if (!force)
+			{
+				var (blocked, reason) = await CheckMigrationRemovableAsync(contextType, migrationId);
+				if (blocked) return Error(reason);
+			}
 
 			var migrationFile = Directory.GetFiles(migrationsDir, "*.cs")
 				.FirstOrDefault(f => !f.Contains("ModelSnapshot") &&
@@ -170,6 +178,39 @@ public static class DesignTimeOperations
 		catch (Exception ex)
 		{
 			return Error(ex.InnerException?.Message ?? ex.Message);
+		}
+	}
+
+	/// <summary>
+	/// Decides whether the last migration can be removed locally. It's blocked when the store
+	/// already has it applied (roll it back first), and — to stay safe — also when the store
+	/// can't be reached to confirm; both are overridable with --force.
+	/// </summary>
+	private static async Task<(bool blocked, string reason)> CheckMigrationRemovableAsync(Type contextType, string migrationId)
+	{
+		ISheetsProvider? provider = null;
+		try
+		{
+			IMigrationService? migrationService;
+			(provider, migrationService) = CreateProviderFromContext(contextType, null);
+			if (migrationService is null) return (false, string.Empty);
+
+			await provider.InitializeAsync();
+			var applied = await migrationService.GetAppliedMigrationsAsync();
+			if (applied.Contains(migrationId))
+				return (true, $"Migration '{migrationId}' is already applied to the database. " +
+					"Roll it back first with 'sheetly database rollback', or re-run with --force to delete the local files anyway.");
+
+			return (false, string.Empty);
+		}
+		catch (Exception ex)
+		{
+			return (true, $"Couldn't verify whether '{migrationId}' is applied to the database ({ex.Message}). " +
+				"Roll it back first, or re-run with --force to remove the local files without checking.");
+		}
+		finally
+		{
+			provider?.Dispose();
 		}
 	}
 
@@ -262,6 +303,50 @@ public static class DesignTimeOperations
 	}
 
 	/// <summary>
+	/// Lists local migrations with their applied/pending status against the store. Falls back to
+	/// marking everything pending (and reporting <c>providerReachable:false</c>) when the store
+	/// can't be reached, so the command still works offline.
+	/// Returns JSON: { "success":true, "providerReachable":true, "migrations":[{ "id":"...", "applied":true }] }
+	/// </summary>
+	public static async Task<string> GetMigrationsStatusAsync(Type contextType, string? connectionString = null)
+	{
+		try
+		{
+			var local = contextType.Assembly.GetExportedTypes()
+				.Select(t => t.GetCustomAttribute<MigrationAttribute>()?.Id)
+				.Where(id => id is not null)
+				.Cast<string>()
+				.OrderBy(id => id)
+				.ToList();
+
+			var applied = new HashSet<string>();
+			bool providerReachable = false;
+			string? providerError = null;
+			ISheetsProvider? provider = null;
+			try
+			{
+				IMigrationService? migrationService;
+				(provider, migrationService) = CreateProviderFromContext(contextType, connectionString);
+				if (migrationService is not null)
+				{
+					await provider.InitializeAsync();
+					foreach (var id in await migrationService.GetAppliedMigrationsAsync()) applied.Add(id);
+					providerReachable = true;
+				}
+			}
+			catch (Exception ex) { providerError = ex.Message; }
+			finally { provider?.Dispose(); }
+
+			var migrations = local.Select(id => new { id, applied = applied.Contains(id) }).ToList();
+			return JsonSerializer.Serialize(new { success = true, providerReachable, providerError, migrations });
+		}
+		catch (Exception ex)
+		{
+			return Error(ex.InnerException?.Message ?? ex.Message);
+		}
+	}
+
+	/// <summary>
 	/// Drops the database (clears all sheets).
 	/// Returns JSON: { "success":true }
 	/// </summary>
@@ -310,6 +395,10 @@ public static class DesignTimeOperations
 			var files = new List<string>();
 			var usedClassNames = new HashSet<string>(StringComparer.Ordinal);
 			var usedFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+			// Resolve every class name up front so foreign keys can emit navigation properties by class.
+			var resolved = new List<(EntitySchema entity, string className, string fileName)>();
+			var tableToClass = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 			foreach (var entity in snapshot.Entities.Values)
 			{
 				var className = ResolveIdentifier(entity.ClassName, $"class name for table '{entity.TableName}'");
@@ -317,7 +406,13 @@ public static class DesignTimeOperations
 				className = DedupeIdentifier(className, usedClassNames);
 
 				var fileName = UniqueFileName(className.TrimStart('@'), usedFileNames);
-				File.WriteAllText(Path.Combine(finalPath, fileName), GenerateClassCode(entity, className));
+				resolved.Add((entity, className, fileName));
+				tableToClass[entity.TableName] = className;
+			}
+
+			foreach (var (entity, className, fileName) in resolved)
+			{
+				File.WriteAllText(Path.Combine(finalPath, fileName), GenerateClassCode(entity, className, tableToClass));
 				files.Add(fileName);
 			}
 
@@ -578,6 +673,9 @@ public static class DesignTimeOperations
 	}
 
 	internal static string GenerateClassCode(EntitySchema entity, string className)
+		=> GenerateClassCode(entity, className, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+
+	internal static string GenerateClassCode(EntitySchema entity, string className, Dictionary<string, string> tableToClass)
 	{
 		var sb = new StringBuilder();
 		sb.AppendLine("using System.ComponentModel.DataAnnotations;");
@@ -596,14 +694,33 @@ public static class DesignTimeOperations
 			propertyName = DedupeIdentifier(propertyName, usedMembers);
 
 			if (col.IsPrimaryKey) sb.AppendLine("    [Key]");
-			if (col.IsForeignKey) sb.AppendLine($"    [ForeignKey(\"{CSharpHelper.EscapeStringLiteral(col.ForeignKeyTable ?? string.Empty)}\")]");
 			var type = GetScaffoldType(col.DataType, entity.TableName);
 			if (col.IsNullable) type += "?";
 			sb.AppendLine($"    public {type} {propertyName} {{ get; set; }}");
 			sb.AppendLine();
+
+			if (col.IsForeignKey)
+				AppendNavigationProperty(sb, col, propertyName, tableToClass, usedMembers);
 		}
 		sb.AppendLine("}");
 		return sb.ToString();
+	}
+
+	/// <summary>
+	/// Emits a reference navigation property for a foreign-key column (e.g. <c>public Category? Category</c>
+	/// for <c>CategoryId</c>), which Sheetly's convention binds automatically — no <c>[ForeignKey]</c> needed.
+	/// Skipped when the referenced class or the <c>XxxId</c> naming can't be resolved.
+	/// </summary>
+	private static void AppendNavigationProperty(StringBuilder sb, ColumnSchema col, string fkPropertyName,
+		Dictionary<string, string> tableToClass, HashSet<string> usedMembers)
+	{
+		if (string.IsNullOrEmpty(col.ForeignKeyTable)) return;
+		if (!tableToClass.TryGetValue(col.ForeignKeyTable, out var refClass)) return;
+		if (fkPropertyName.Length <= 2 || !fkPropertyName.EndsWith("Id", StringComparison.OrdinalIgnoreCase)) return;
+
+		var navName = DedupeIdentifier(fkPropertyName[..^2], usedMembers);
+		sb.AppendLine($"    public {refClass}? {navName} {{ get; set; }}");
+		sb.AppendLine();
 	}
 
 	#endregion

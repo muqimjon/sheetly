@@ -339,6 +339,24 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 		return Task.CompletedTask;
 	}
 
+	public Task ReplaceSheetDataAsync(string sheetName, IList<IList<object>> rows)
+	{
+		EnsureWorkbook();
+		var ws = GetWorksheet(sheetName);
+		ws.Clear(XLClearOptions.Contents);
+
+		for (int r = 0; r < rows.Count; r++)
+		{
+			var row = rows[r];
+			for (int i = 0; i < row.Count; i++)
+				if (row[i] is not null)
+					SetCell(ws.Cell(r + 1, i + 1), row[i]);
+		}
+
+		Save();
+		return Task.CompletedTask;
+	}
+
 	public Task HideSheetAsync(string sheetName)
 	{
 		EnsureWorkbook();
@@ -421,22 +439,6 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 	{
 		var lastUsed = ws.LastRowUsed();
 		return lastUsed is null ? 2 : lastUsed.RowNumber() + 1;
-	}
-
-	private static long GetMaxIdFromSheet(IXLWorksheet ws)
-	{
-		long max = 0;
-		var rangeUsed = ws.RangeUsed();
-		if (rangeUsed is null) return max;
-
-		int lastRow = rangeUsed.LastRow().RowNumber();
-		for (int r = 2; r <= lastRow; r++)
-		{
-			var val = ws.Cell(r, 1).GetValue<string>();
-			if (long.TryParse(val, out var id) && id > max)
-				max = id;
-		}
-		return max;
 	}
 
 	private static (int row, int col) ParseCellAddress(string cellAddress)

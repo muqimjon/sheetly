@@ -94,18 +94,11 @@ public class ExcelMigrationService(ISheetsProvider provider) : IMigrationService
 	}
 
 	/// <summary>
-	/// Replaces a sheet's contents with <paramref name="newRows"/> (row 0 = header).
-	/// ClearSheetAsync preserves the header row, so the header is overwritten in place
-	/// and only the remaining rows are appended — avoiding a duplicated header.
+	/// Replaces a sheet's contents with <paramref name="newRows"/> (row 0 = header) in a single
+	/// save, so an interrupted rewrite can't corrupt the bookkeeping sheets.
 	/// </summary>
-	private async Task RewriteSheetAsync(string sheet, List<IList<object>> newRows)
-	{
-		await provider.ClearSheetAsync(sheet);
-		if (newRows.Count > 0)
-			await provider.UpdateRowAsync(sheet, 1, newRows[0]);
-		for (int i = 1; i < newRows.Count; i++)
-			await provider.AppendRowAsync(sheet, newRows[i]);
-	}
+	private Task RewriteSheetAsync(string sheet, List<IList<object>> newRows)
+		=> provider.ReplaceSheetDataAsync(sheet, newRows);
 
 	private async Task ExecuteOperationAsync(MigrationOperation operation)
 	{
