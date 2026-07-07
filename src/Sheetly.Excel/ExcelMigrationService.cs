@@ -165,6 +165,8 @@ public class ExcelMigrationService(ISheetsProvider provider) : IMigrationService
 			await provider.DeleteSheetAsync(op.Name);
 
 		var rows = await provider.GetAllRowsAsync(SchemaTable);
+		if (rows.Count == 0) return;
+
 		var newRows = new List<IList<object>> { rows[0] };
 		for (int i = 1; i < rows.Count; i++)
 		{
@@ -403,6 +405,8 @@ public class ExcelMigrationService(ISheetsProvider provider) : IMigrationService
 	private async Task RemoveFromSchemaTableAsync(string tableName, string columnName)
 	{
 		var rows = await provider.GetAllRowsAsync(SchemaTable);
+		if (rows.Count == 0) return;
+
 		var newRows = new List<IList<object>> { rows[0] };
 
 		for (int i = 1; i < rows.Count; i++)

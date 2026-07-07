@@ -298,4 +298,65 @@ public class CSharpMigrationGeneratorTests
 		Assert.DoesNotContain(".HasCheckConstraint(\"N != \"bad\"\")", code);
 		Assert.Contains(".HasCheckConstraint(\"N != \\\"bad\\\"\")", code);
 	}
+
+	// M7 — string default values with quotes/newlines/backslashes are escaped
+	[Fact]
+	public void GenerateMigration_EscapesNewlinesAndQuotesInDefaultValue()
+	{
+		var ops = new List<MigrationOperation>
+		{
+			new CreateTableOperation
+			{
+				Name = "T",
+				Columns =
+				{
+					new AddColumnOperation { Name = "N", ClrType = typeof(string), DefaultValue = "line1\nO\"Brien\\x" }
+				}
+			}
+		};
+
+		var code = _generator.GenerateMigration("Init", "id", "App.Migrations", ops);
+
+		Assert.DoesNotContain("O\"Brien", code);
+		Assert.Contains("\\n", code);
+		Assert.Contains("\\\"Brien", code);
+		Assert.Contains("\\\\x", code);
+	}
+
+	// M7 — decimal defaults are emitted with an invariant separator regardless of culture
+	[Fact]
+	public void GenerateMigration_DecimalDefault_UsesInvariantSeparator()
+	{
+		var prev = System.Threading.Thread.CurrentThread.CurrentCulture;
+		System.Threading.Thread.CurrentThread.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+		try
+		{
+			var ops = new List<MigrationOperation>
+			{
+				new CreateTableOperation
+				{
+					Name = "T",
+					Columns = { new AddColumnOperation { Name = "Price", ClrType = typeof(decimal), DefaultValue = 1.5m } }
+				}
+			};
+
+			var code = _generator.GenerateMigration("Init", "id", "App.Migrations", ops);
+
+			Assert.Contains(".HasDefaultValue(1.5m)", code);
+			Assert.DoesNotContain("1,5m", code);
+		}
+		finally
+		{
+			System.Threading.Thread.CurrentThread.CurrentCulture = prev;
+		}
+	}
+
+	// M7 — a migration named after a C# keyword produces a compilable class name
+	[Fact]
+	public void GenerateMigration_KeywordName_GetsAtPrefix()
+	{
+		var code = _generator.GenerateMigration("class", "20260101_class", "App.Migrations", []);
+
+		Assert.Contains("public partial class @class : Migration", code);
+	}
 }

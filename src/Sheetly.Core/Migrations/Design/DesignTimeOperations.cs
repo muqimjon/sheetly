@@ -1,6 +1,7 @@
 using Sheetly.Core.Abstractions;
 using Sheetly.Core.Configuration;
 using Sheetly.Core.Infrastructure;
+using Sheetly.Core.Internal;
 using Sheetly.Core.Migration;
 using Sheetly.Core.Migrations.Operations;
 using System.Reflection;
@@ -307,11 +308,16 @@ public static class DesignTimeOperations
 			Directory.CreateDirectory(finalPath);
 
 			var files = new List<string>();
+			var usedClassNames = new HashSet<string>(StringComparer.Ordinal);
+			var usedFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 			foreach (var entity in snapshot.Entities.Values)
 			{
-				var code = GenerateClassCode(entity);
-				var fileName = $"{entity.ClassName}.cs";
-				File.WriteAllText(Path.Combine(finalPath, fileName), code);
+				var className = ResolveIdentifier(entity.ClassName, $"class name for table '{entity.TableName}'");
+				if (className is null) continue;
+				className = DedupeIdentifier(className, usedClassNames);
+
+				var fileName = UniqueFileName(className.TrimStart('@'), usedFileNames);
+				File.WriteAllText(Path.Combine(finalPath, fileName), GenerateClassCode(entity, className));
 				files.Add(fileName);
 			}
 
@@ -509,24 +515,91 @@ public static class DesignTimeOperations
 		Relationships = src.Relationships.ToList()
 	};
 
-	private static string GenerateClassCode(EntitySchema entity)
+	private static string? ResolveIdentifier(string identifier, string what)
+	{
+		if (IdentifierValidator.IsValid(identifier)) return identifier;
+
+		var sanitized = IdentifierValidator.Sanitize(identifier);
+		if (sanitized.Length == 0)
+		{
+			Console.WriteLine($"Warning: skipped invalid {what} '{identifier}'.");
+			return null;
+		}
+
+		Console.WriteLine($"Warning: {what} '{identifier}' sanitized to '{sanitized}'.");
+		return sanitized;
+	}
+
+	private static string DedupeIdentifier(string identifier, HashSet<string> used)
+	{
+		var bare = identifier.TrimStart('@');
+		if (used.Add(bare)) return identifier;
+		for (int i = 2; ; i++)
+			if (used.Add($"{bare}{i}")) return $"{bare}{i}";
+	}
+
+	private static readonly HashSet<string> ReservedFileNames = new(StringComparer.OrdinalIgnoreCase)
+	{
+		"CON", "PRN", "AUX", "NUL",
+		"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+		"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+	};
+
+	internal static string UniqueFileName(string baseName, HashSet<string> used)
+	{
+		if (ReservedFileNames.Contains(baseName)) baseName = "_" + baseName;
+		var name = baseName;
+		for (int i = 2; !used.Add(name); i++)
+			name = $"{baseName}_{i}";
+		return Path.GetFileName($"{name}.cs");
+	}
+
+	private static string GetScaffoldType(string dataType, string tableName)
+	{
+		switch (dataType)
+		{
+			case "Int32": return "int";
+			case "Int64": return "long";
+			case "Int16": return "short";
+			case "Byte": return "byte";
+			case "String": return "string";
+			case "Boolean": return "bool";
+			case "Decimal": return "decimal";
+			case "Double": return "double";
+			case "Single": return "float";
+			case "DateTime": return "DateTime";
+			case "DateTimeOffset": return "DateTimeOffset";
+			case "TimeSpan": return "TimeSpan";
+			case "Guid": return "Guid";
+			default:
+				Console.WriteLine($"Warning: unknown data type '{dataType}' in '{tableName}' scaffolded as string.");
+				return "string";
+		}
+	}
+
+	internal static string GenerateClassCode(EntitySchema entity, string className)
 	{
 		var sb = new StringBuilder();
 		sb.AppendLine("using System.ComponentModel.DataAnnotations;");
 		sb.AppendLine("using System.ComponentModel.DataAnnotations.Schema;");
 		sb.AppendLine();
-		sb.AppendLine($"namespace {entity.Namespace}.Scaffolded;");
+		sb.AppendLine($"namespace {IdentifierValidator.SanitizeNamespace(entity.Namespace)}.Scaffolded;");
 		sb.AppendLine();
-		sb.AppendLine($"[Table(\"{entity.TableName}\")]");
-		sb.AppendLine($"public class {entity.ClassName}");
+		sb.AppendLine($"[Table(\"{CSharpHelper.EscapeStringLiteral(entity.TableName)}\")]");
+		sb.AppendLine($"public class {className}");
 		sb.AppendLine("{");
+		var usedMembers = new HashSet<string>(StringComparer.Ordinal) { className.TrimStart('@') };
 		foreach (var col in entity.Columns)
 		{
+			var propertyName = ResolveIdentifier(col.PropertyName, $"property name in '{entity.TableName}'");
+			if (propertyName is null) continue;
+			propertyName = DedupeIdentifier(propertyName, usedMembers);
+
 			if (col.IsPrimaryKey) sb.AppendLine("    [Key]");
-			if (col.IsForeignKey) sb.AppendLine($"    [ForeignKey(\"{col.ForeignKeyTable}\")]");
-			var type = col.DataType;
-			if (col.IsNullable && type != "String" && !type.EndsWith("?")) type += "?";
-			sb.AppendLine($"    public {type} {col.PropertyName} {{ get; set; }}");
+			if (col.IsForeignKey) sb.AppendLine($"    [ForeignKey(\"{CSharpHelper.EscapeStringLiteral(col.ForeignKeyTable ?? string.Empty)}\")]");
+			var type = GetScaffoldType(col.DataType, entity.TableName);
+			if (col.IsNullable) type += "?";
+			sb.AppendLine($"    public {type} {propertyName} {{ get; set; }}");
 			sb.AppendLine();
 		}
 		sb.AppendLine("}");

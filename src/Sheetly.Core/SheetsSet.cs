@@ -39,10 +39,16 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 
 	private async ValueTask<List<string>> GetHeadersAsync()
 	{
-		if (_cachedHeaders is not null) return _cachedHeaders;
+		if (_cachedHeaders is { Count: > 0 }) return _cachedHeaders;
+		return await RefreshHeadersAsync();
+	}
+
+	private async Task<List<string>> RefreshHeadersAsync()
+	{
 		var headerRow = await provider.GetRowByIndexAsync(schema.TableName, 1);
-		_cachedHeaders = headerRow?.Select(h => h?.ToString() ?? string.Empty).ToList() ?? [];
-		return _cachedHeaders;
+		var headers = headerRow?.Select(h => h?.ToString() ?? string.Empty).ToList() ?? [];
+		if (headers.Count > 0) _cachedHeaders = headers;
+		return headers;
 	}
 
 	public SheetsSet<T> AsNoTracking()
@@ -179,7 +185,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		if (rows.Count <= 1) return [];
 
 		var headers = rows[0].Select(h => h?.ToString() ?? string.Empty).ToList();
-		_cachedHeaders ??= headers;
+		_cachedHeaders = headers;
 
 		var result = new List<T>(rows.Count - 1);
 
@@ -376,13 +382,16 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		int changes = 0;
 
 		var toUpdate = _trackedEntities.Where(x => x.Value == EntityState.Modified).ToList();
+		var toAdd = _trackedEntities.Where(x => x.Value == EntityState.Added).ToList();
+		List<string> headers = toUpdate.Count > 0 || toAdd.Count > 0 ? await RefreshHeadersAsync() : [];
+
 		foreach (var item in toUpdate)
 		{
 			if (_entityRowIndexes.TryGetValue(item.Key, out int rowIndex))
 			{
 				if (_concurrencyColumn is not null)
 					await EnsureConcurrencyAsync(item.Key, rowIndex);
-				await provider.UpdateRowAsync(schema.TableName, rowIndex, EntityMapper.MapToRow(item.Key, schema));
+				await provider.UpdateRowAsync(schema.TableName, rowIndex, EntityMapper.MapToRow(item.Key, schema, headers));
 				changes++;
 			}
 		}
@@ -397,7 +406,6 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 			}
 		}
 
-		var toAdd = _trackedEntities.Where(x => x.Value == EntityState.Added).ToList();
 		if (toAdd.Count > 0 && _concurrencyColumn?.IsRowVersion == true)
 		{
 			var tokenProp = typeof(T).GetProperty(_concurrencyColumn.PropertyName);
@@ -419,14 +427,14 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 				foreach (var item in toAdd)
 				{
 					pkProp?.SetValue(item.Key, Convert.ChangeType(nextId, pkProp.PropertyType));
-					batchRows.Add(EntityMapper.MapToRow(item.Key, schema));
+					batchRows.Add(EntityMapper.MapToRow(item.Key, schema, headers));
 					nextId++;
 				}
 				await provider.AppendRowsAsync(schema.TableName, batchRows);
 			}
 			else
 			{
-				var batchRows = toAdd.Select(item => EntityMapper.MapToRow(item.Key, schema)).ToList();
+				var batchRows = toAdd.Select(item => EntityMapper.MapToRow(item.Key, schema, headers)).ToList();
 				await provider.AppendRowsAsync(schema.TableName, (IList<IList<object>>)batchRows);
 			}
 			changes += toAdd.Count;

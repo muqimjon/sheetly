@@ -240,14 +240,14 @@ public class GoogleSheetProvider : ISheetsProvider
 	public async Task<List<IList<object>>> GetAllRowsAsync(string sheetName)
 	{
 		var response = await ExecuteWithFailoverAsync(
-			svc => svc.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'"));
+			svc => svc.Spreadsheets.Values.Get(_spreadsheetId, $"{QuoteSheet(sheetName)}"));
 		return response.Values?.ToList() ?? [];
 	}
 
 	public async Task<IList<object>?> GetRowByIndexAsync(string sheetName, int rowIndex)
 	{
 		var response = await ExecuteWithFailoverAsync(
-			svc => svc.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!{rowIndex}:{rowIndex}"));
+			svc => svc.Spreadsheets.Values.Get(_spreadsheetId, $"{QuoteSheet(sheetName)}!{rowIndex}:{rowIndex}"));
 		return response.Values?.FirstOrDefault();
 	}
 
@@ -255,7 +255,7 @@ public class GoogleSheetProvider : ISheetsProvider
 	{
 		var response = await ExecuteWithFailoverAsync(svc =>
 		{
-			var req = svc.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!A:A");
+			var req = svc.Spreadsheets.Values.Get(_spreadsheetId, $"{QuoteSheet(sheetName)}!A:A");
 			req.ValueRenderOption = SpreadsheetsResource.ValuesResource.GetRequest.ValueRenderOptionEnum.UNFORMATTEDVALUE;
 			return req;
 		});
@@ -275,7 +275,7 @@ public class GoogleSheetProvider : ISheetsProvider
 		var vr = new ValueRange { Values = new List<IList<object>> { row } };
 		await ExecuteWithFailoverAsync(svc =>
 		{
-			var req = svc.Spreadsheets.Values.Append(vr, _spreadsheetId, $"'{sheetName}'!A1");
+			var req = svc.Spreadsheets.Values.Append(vr, _spreadsheetId, $"{QuoteSheet(sheetName)}!A1");
 			req.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
 			return req;
 		});
@@ -323,7 +323,7 @@ public class GoogleSheetProvider : ISheetsProvider
 		var vr = new ValueRange { Values = rows };
 		await ExecuteWithFailoverAsync(svc =>
 		{
-			var req = svc.Spreadsheets.Values.Append(vr, _spreadsheetId, $"'{sheetName}'!A1");
+			var req = svc.Spreadsheets.Values.Append(vr, _spreadsheetId, $"{QuoteSheet(sheetName)}!A1");
 			req.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
 			return req;
 		});
@@ -332,7 +332,7 @@ public class GoogleSheetProvider : ISheetsProvider
 	public async Task UpdateRowAsync(string sheetName, int rowIndex, IList<object> row)
 	{
 		var endCol = GetColumnLetter(row.Count);
-		var range = $"'{sheetName}'!A{rowIndex}:{endCol}{rowIndex}";
+		var range = $"{QuoteSheet(sheetName)}!A{rowIndex}:{endCol}{rowIndex}";
 		var valueRange = new ValueRange { Values = new List<IList<object>> { row } };
 		await ExecuteWithFailoverAsync(svc =>
 		{
@@ -472,8 +472,8 @@ public class GoogleSheetProvider : ISheetsProvider
 	{
 		var header = await GetRowByIndexAsync(sheetName, 1);
 		var range = header is { Count: > 0 }
-			? $"'{sheetName}'!A2:{GetColumnLetter(header.Count)}"
-			: $"'{sheetName}'!A2:ZZZ";
+			? $"{QuoteSheet(sheetName)}!A2:{GetColumnLetter(header.Count)}"
+			: $"{QuoteSheet(sheetName)}!A2:ZZZ";
 		await ExecuteWithFailoverAsync(
 			svc => svc.Spreadsheets.Values.Clear(new ClearValuesRequest(), _spreadsheetId, range));
 	}
@@ -483,7 +483,7 @@ public class GoogleSheetProvider : ISheetsProvider
 		var vr = new ValueRange { Values = [[value]] };
 		await ExecuteWithFailoverAsync(svc =>
 		{
-			var req = svc.Spreadsheets.Values.Update(vr, _spreadsheetId, $"'{sheetName}'!{range}");
+			var req = svc.Spreadsheets.Values.Update(vr, _spreadsheetId, $"{QuoteSheet(sheetName)}!{range}");
 			req.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
 			return req;
 		});
@@ -492,7 +492,7 @@ public class GoogleSheetProvider : ISheetsProvider
 	public async Task<object?> GetValueAsync(string sheetName, string range)
 	{
 		var response = await ExecuteWithFailoverAsync(
-			svc => svc.Spreadsheets.Values.Get(_spreadsheetId, $"'{sheetName}'!{range}"));
+			svc => svc.Spreadsheets.Values.Get(_spreadsheetId, $"{QuoteSheet(sheetName)}!{range}"));
 		return response.Values?.FirstOrDefault()?.FirstOrDefault();
 	}
 
@@ -569,6 +569,11 @@ public class GoogleSheetProvider : ISheetsProvider
 		foreach (var svc in _rotator.Services)
 			svc?.Dispose();
 	}
+
+	/// <summary>
+	/// Quotes a sheet name for A1 notation, escaping embedded single quotes.
+	/// </summary>
+	private static string QuoteSheet(string sheetName) => $"'{sheetName.Replace("'", "''")}'";
 
 	/// <summary>
 	/// Converts 1-based column count to column letter (1=A, 26=Z, 27=AA, etc.)

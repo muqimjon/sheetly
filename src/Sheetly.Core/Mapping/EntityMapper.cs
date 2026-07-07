@@ -31,13 +31,36 @@ internal static class EntityMapper
 		return name == "id" || name == (prop.DeclaringType?.Name.ToLower() + "id");
 	}
 
-	public static IList<object> MapToRow<T>(T entity, EntitySchema schema)
+	/// <summary>
+	/// Maps an entity to a row in the sheet's LIVE header order, so physical column
+	/// position never has to match property declaration order. Headers unknown to the
+	/// schema produce <c>null</c> cells (providers leave those cells untouched);
+	/// a schema column missing from the sheet is a hard error (schema drift).
+	/// </summary>
+	public static IList<object> MapToRow<T>(T entity, EntitySchema schema, IReadOnlyList<string> actualHeaders)
 	{
-		var props = GetProperties(typeof(T));
-		var row = new object[schema.Columns.Count];
-		for (int i = 0; i < schema.Columns.Count; i++)
+		foreach (var column in schema.Columns)
 		{
-			var value = props.TryGetValue(schema.Columns[i].PropertyName, out var prop)
+			bool found = false;
+			for (int i = 0; i < actualHeaders.Count && !found; i++)
+				found = column.Name.Equals(actualHeaders[i], StringComparison.OrdinalIgnoreCase);
+			if (!found)
+				throw new InvalidOperationException(
+					$"Column '{column.Name}' is missing from sheet '{schema.TableName}'. Apply pending migrations with 'dotnet sheetly database update'.");
+		}
+
+		var props = GetProperties(typeof(T));
+		var row = new object[actualHeaders.Count];
+		for (int i = 0; i < actualHeaders.Count; i++)
+		{
+			var colSchema = FindColumn(schema, actualHeaders[i]);
+			if (colSchema is null)
+			{
+				row[i] = null!;
+				continue;
+			}
+
+			var value = props.TryGetValue(colSchema.PropertyName, out var prop)
 				? prop.GetValue(entity) : null;
 			row[i] = FormatValueForSheet(value);
 		}
@@ -47,15 +70,27 @@ internal static class EntityMapper
 	private static object FormatValueForSheet(object? value)
 	{
 		if (value is null) return string.Empty;
+		if (value is string s) return EscapeFormulaPrefix(s);
 		if (value is bool b) return b ? "TRUE" : "FALSE";
 		if (value is DateTime dt) return dt.ToString("O", CultureInfo.InvariantCulture);
 		if (value is DateTimeOffset dto) return dto.ToString("O", CultureInfo.InvariantCulture);
-		if (value is Enum e) return e.ToString();
+		if (value is Enum e) return EscapeFormulaPrefix(e.ToString());
 		if (value is decimal dec) return dec.ToString(CultureInfo.InvariantCulture);
 		if (value is double dbl) return dbl.ToString("R", CultureInfo.InvariantCulture);
 		if (value is float flt) return flt.ToString("R", CultureInfo.InvariantCulture);
-		return value;
+		if (value is char c) return EscapeFormulaPrefix(c.ToString());
+		return EscapeFormulaPrefix(value.ToString() ?? string.Empty);
 	}
+
+	/// <summary>
+	/// Prevents spreadsheet formula injection: user strings starting with a formula trigger
+	/// or control character get a leading apostrophe, which USER_ENTERED input consumes as
+	/// a text marker — the stored value round-trips unchanged but is never parsed as a formula.
+	/// </summary>
+	private static string EscapeFormulaPrefix(string value)
+		=> value.Length > 0 && value[0] is '=' or '+' or '-' or '@' or '\'' or '\t' or '\r' or '\n'
+			? "'" + value
+			: value;
 
 	public static T MapFromRow<T>(IList<object> row, IList<string> actualHeaders, EntitySchema schema) where T : class, new()
 	{

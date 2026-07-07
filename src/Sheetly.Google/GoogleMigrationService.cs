@@ -169,6 +169,8 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 			await provider.DeleteSheetAsync(op.Name);
 
 		var rows = await provider.GetAllRowsAsync(SchemaTable);
+		if (rows.Count == 0) return;
+
 		var newRows = new List<IList<object>> { rows[0] };
 
 		for (int i = 1; i < rows.Count; i++)
@@ -401,6 +403,8 @@ public class GoogleMigrationService(ISheetsProvider provider) : IMigrationServic
 	private async Task RemoveFromSchemaTableAsync(string tableName, string columnName)
 	{
 		var rows = await provider.GetAllRowsAsync(SchemaTable);
+		if (rows.Count == 0) return;
+
 		var newRows = new List<IList<object>> { rows[0] };
 
 		for (int i = 1; i < rows.Count; i++)

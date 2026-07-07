@@ -13,6 +13,9 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 	private readonly Dictionary<string, List<IList<object>>> _sheets =
 		new(StringComparer.OrdinalIgnoreCase);
 
+	/// <summary>Every row exactly as it was passed to Append/Update, before apostrophe stripping.</summary>
+	public List<IList<object>> RawWrites { get; } = [];
+
 	public Task InitializeAsync() => Task.CompletedTask;
 
 	public Task DropDatabaseAsync()
@@ -92,18 +95,29 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 		return Task.FromResult(-1);
 	}
 
+	/// <summary>
+	/// Mirrors Google Sheets USER_ENTERED semantics: one leading apostrophe on a string
+	/// is a text marker consumed on write; a null cell is skipped (existing value kept).
+	/// </summary>
+	private static object CellValue(object? value) =>
+		value is string { Length: > 0 } s && s[0] == '\'' ? s[1..] : value ?? string.Empty;
+
+	private static List<object> CellValues(IList<object> row) => row.Select(CellValue).ToList();
+
 	public Task AppendRowAsync(string sheetName, IList<object> row)
 	{
+		RawWrites.Add(row.ToList());
 		if (_sheets.TryGetValue(sheetName, out var rows))
-			rows.Add(row.ToList());
+			rows.Add(CellValues(row));
 		return Task.CompletedTask;
 	}
 
 	public Task AppendRowsAsync(string sheetName, IList<IList<object>> rows)
 	{
+		foreach (var row in rows) RawWrites.Add(row.ToList());
 		if (_sheets.TryGetValue(sheetName, out var sheet))
 			foreach (var row in rows)
-				sheet.Add(row.ToList());
+				sheet.Add(CellValues(row));
 		return Task.CompletedTask;
 	}
 
@@ -142,7 +156,15 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 		{
 			int idx = rowIndex - 1;
 			if (idx >= 0 && idx < rows.Count)
-				rows[idx] = row.ToList();
+			{
+				var old = rows[idx];
+				var updated = new List<object>();
+				for (int i = 0; i < row.Count; i++)
+					updated.Add(row[i] is null ? (i < old.Count ? old[i] : string.Empty) : CellValue(row[i]));
+				for (int i = row.Count; i < old.Count; i++)
+					updated.Add(old[i]);
+				rows[idx] = updated;
+			}
 		}
 		return Task.CompletedTask;
 	}
@@ -169,7 +191,7 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 
 		var rowData = rows[row];
 		while (rowData.Count <= col) rowData.Add(string.Empty);
-		rowData[col] = value;
+		rowData[col] = CellValue(value);
 		return Task.CompletedTask;
 	}
 

@@ -105,7 +105,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 		var storedSnapshot = (MigrationSnapshot?)Activator.CreateInstance(snapshotType);
 		if (storedSnapshot is null) return;
 
-		if (_currentSnapshot.ModelHash != storedSnapshot.ModelHash)
+		if (_currentSnapshot.ModelHash != ModelHasher.Calculate(storedSnapshot.Entities))
 		{
 			throw new InvalidOperationException(
 				"The model has changed since the last migration was created. " +

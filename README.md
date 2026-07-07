@@ -167,6 +167,8 @@ dotnet tool install -g dotnet-sheetly
 5. Download `credentials.json`
 6. Share your spreadsheet with the service account email
 
+> 🔒 **Keep `credentials.json` out of source control** — add it to `.gitignore` and commit a placeholder like [`credentials.example.json`](samples/Sheetly.Sample/credentials.example.json) instead.
+
 #### 2. Configure
 
 ```csharp
@@ -524,6 +526,15 @@ Define models → Create migrations → Apply to Sheets → Use context
      ↓                ↓                    ↓               ↓
   C# classes    .cs migration files   Google Sheets    CRUD + queries
 ```
+
+---
+
+## 🔒 Security
+
+- **Never commit `credentials.json`** — keep service-account keys in `.gitignore`, a secrets store, or environment-specific config. Ship a placeholder (`credentials.example.json`) instead.
+- **Share with least privilege** — give the service-account email *Editor* access to only the one spreadsheet Sheetly uses, nothing more.
+- **One service account per environment** — separate keys for dev and production so a leaked dev key can't touch real data.
+- Values that start with `=` or `+` are stored as text literals, so user input can never become a live formula in your sheet.
 
 ---
 

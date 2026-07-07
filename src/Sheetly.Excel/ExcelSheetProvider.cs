@@ -104,6 +104,13 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 		return Task.FromResult(-1);
 	}
 
+	/// <summary>
+	/// ClosedXML itself consumes one leading apostrophe as a text (quote-prefix) marker,
+	/// mirroring Google Sheets USER_ENTERED — so the formula-escape apostrophe is stripped
+	/// natively here; the provider must NOT strip it again.
+	/// </summary>
+	private static string CellText(object? value) => value?.ToString() ?? "";
+
 	public Task AppendRowAsync(string sheetName, IList<object> row)
 	{
 		EnsureWorkbook();
@@ -111,7 +118,8 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 		int nextRow = GetNextEmptyRow(ws);
 
 		for (int i = 0; i < row.Count; i++)
-			ws.Cell(nextRow, i + 1).Value = row[i]?.ToString() ?? "";
+			if (row[i] is not null)
+				ws.Cell(nextRow, i + 1).Value = CellText(row[i]);
 
 		Save();
 		return Task.CompletedTask;
@@ -128,7 +136,8 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 		foreach (var row in rows)
 		{
 			for (int i = 0; i < row.Count; i++)
-				ws.Cell(nextRow, i + 1).Value = row[i]?.ToString() ?? "";
+				if (row[i] is not null)
+					ws.Cell(nextRow, i + 1).Value = CellText(row[i]);
 			nextRow++;
 		}
 
@@ -180,7 +189,8 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 		var ws = GetWorksheet(sheetName);
 
 		for (int i = 0; i < row.Count; i++)
-			ws.Cell(rowIndex, i + 1).Value = row[i]?.ToString() ?? "";
+			if (row[i] is not null)
+				ws.Cell(rowIndex, i + 1).Value = CellText(row[i]);
 
 		Save();
 		return Task.CompletedTask;
@@ -281,7 +291,7 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 		EnsureWorkbook();
 		var ws = GetWorksheet(sheetName);
 		var (row, col) = ParseCellAddress(range);
-		ws.Cell(row, col).Value = value?.ToString() ?? "";
+		ws.Cell(row, col).Value = CellText(value);
 		Save();
 		return Task.CompletedTask;
 	}

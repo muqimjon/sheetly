@@ -14,6 +14,9 @@ on:
           - Sheetly.DependencyInjection
           - dotnet-sheetly
 
+permissions:
+  contents: write
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -28,18 +31,25 @@ jobs:
 
       - name: Resolve project and version
         id: info
+        env:
+          PACKAGE: ${{ github.event.inputs.package }}
         run: |
-          case "${{ github.event.inputs.package }}" in
+          case "$PACKAGE" in
             Sheetly.Core)                 PROJ=src/Sheetly.Core/Sheetly.Core.csproj ;;
             Sheetly.Google)               PROJ=src/Sheetly.Google/Sheetly.Google.csproj ;;
             Sheetly.Excel)                PROJ=src/Sheetly.Excel/Sheetly.Excel.csproj ;;
             Sheetly.DependencyInjection)  PROJ=src/Sheetly.DependencyInjection/Sheetly.DependencyInjection.csproj ;;
             dotnet-sheetly)               PROJ=src/Sheetly.CLI/Sheetly.CLI.csproj ;;
+            *) echo "Unknown package: $PACKAGE" >&2; exit 1 ;;
           esac
           VERSION=$(grep -m1 '<Version>' "$PROJ" | sed 's/.*<Version>\(.*\)<\/Version>.*/\1/' | tr -d '[:space:]')
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version '$VERSION' from $PROJ (expected N.N.N or N.N.N-suffix)" >&2
+            exit 1
+          fi
           echo "proj=$PROJ" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Releasing ${{ github.event.inputs.package }} v$VERSION from $PROJ"
+          echo "Releasing $PACKAGE v$VERSION from $PROJ"
 
       - name: Build
         run: dotnet build Sheetly.sln -c Release --no-incremental
@@ -51,9 +61,12 @@ jobs:
         run: dotnet pack ${{ steps.info.outputs.proj }} -c Release --no-build -o ./nupkg
 
       - name: Push to NuGet
+        env:
+          PACKAGE: ${{ github.event.inputs.package }}
+          VERSION: ${{ steps.info.outputs.version }}
         run: |
-          dotnet nuget push "nupkg/${{ github.event.inputs.package }}.${{ steps.info.outputs.version }}.nupkg" \
-            -k ${{ secrets.NUGET_API_KEY }} -s https://api.nuget.org/v3/index.json --skip-duplicate
+          dotnet nuget push "nupkg/$PACKAGE.$VERSION.nupkg" \
+            -k "${{ secrets.NUGET_API_KEY }}" -s https://api.nuget.org/v3/index.json --skip-duplicate
 
       - name: Create GitHub Release
         uses: ncipollo/release-action@v1

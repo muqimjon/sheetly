@@ -9,20 +9,21 @@ namespace Sheetly.Core.Migrations;
 /// Computes the model hash used to detect schema changes between migrations.
 /// Hashes only structural fields — table/column names, data types, PK/FK relationships.
 /// Validation-only constraints (MaxLength, IsUnique, IsRequired, etc.) don't change
-/// the Sheets schema, so they don't trigger a new migration.
+/// the Sheets schema, so they don't trigger a new migration. Columns are sorted by
+/// name so pure property reordering (which ModelDiffer ignores) doesn't drift the hash.
 /// </summary>
 public static class ModelHasher
 {
 	public static string Calculate(Dictionary<string, EntitySchema> entities)
 	{
 		var structural = entities
-			.OrderBy(e => e.Key)
+			.OrderBy(e => e.Key, StringComparer.Ordinal)
 			.ToDictionary(
 				e => e.Key,
 				e => new
 				{
 					e.Value.TableName,
-					Columns = e.Value.Columns.Select(c => new
+					Columns = e.Value.Columns.OrderBy(c => c.Name, StringComparer.Ordinal).Select(c => new
 					{
 						c.Name,
 						c.DataType,
