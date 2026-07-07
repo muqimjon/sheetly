@@ -1,6 +1,7 @@
 using Sheetly.Core.Abstractions;
 using Sheetly.Core.Configuration;
 using Sheetly.Core.Infrastructure;
+using Sheetly.Core.Internal;
 using Sheetly.Core.Mapping;
 using Sheetly.Core.Migration;
 using Sheetly.Core.Migrations;
@@ -233,11 +234,14 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 				throw new ValidationException(result);
 		}
 
-		if (allAddedEntities.Count > 0)
-			await ValidateInsertUniquenessAsync(allAddedEntities);
+		var addedRefs = new HashSet<object>(allAddedEntities, ReferenceEqualityComparer.Instance);
+		var allModifiedEntities = allPendingEntities.Where(e => !addedRefs.Contains(e)).ToList();
+
+		if (allAddedEntities.Count > 0 || allModifiedEntities.Count > 0)
+			await ValidateUniquenessAsync(allAddedEntities, allModifiedEntities);
 
 		if (allPendingEntities.Count > 0)
-			await ValidateForeignKeyReferencesAsync(allPendingEntities);
+			await ValidateForeignKeyReferencesAsync(allPendingEntities, allAddedEntities);
 
 		List<DeleteSideEffect> sideEffects = allDeletedEntities.Count > 0
 			? await PlanDeleteSideEffectsAsync(allDeletedEntities)
@@ -258,14 +262,17 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 	}
 
 	/// <summary>
-	/// Enforces primary-key and unique-column uniqueness for newly added entities against
-	/// existing remote data and within the pending insert batch. One read per table.
+	/// Enforces PK and unique-column uniqueness for added and modified entities against remote
+	/// data and within the pending batch. A modified entity may keep its own value — its current
+	/// row is excluded from the conflict set (matched by primary key). One read per table.
 	/// </summary>
-	private async Task ValidateInsertUniquenessAsync(List<object> addedEntities)
+	private async Task ValidateUniquenessAsync(List<object> addedEntities, List<object> modifiedEntities)
 	{
 		if (_currentSnapshot?.Entities is null || Provider is null) return;
 
-		foreach (var group in addedEntities.GroupBy(e => e.GetType()))
+		var addedSet = new HashSet<object>(addedEntities, ReferenceEqualityComparer.Instance);
+		var all = addedEntities.Concat(modifiedEntities);
+		foreach (var group in all.GroupBy(e => e.GetType()))
 		{
 			var entityType = group.Key;
 			var schema = _currentSnapshot.Entities.Values.FirstOrDefault(e => e.ClassName == entityType.Name);
@@ -282,39 +289,54 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 			var rows = await Provider.GetAllRowsAsync(schema.TableName);
 			var headers = rows.Count > 0 ? rows[0].Select(h => h?.ToString() ?? string.Empty).ToList() : [];
 
+			var singlePk = pkColumns.Count == 1 ? pkColumns[0] : null;
+			int pkIndex = singlePk is not null ? HeaderIndexOf(headers, singlePk) : -1;
+			var pkProp = singlePk is not null ? entityType.GetProperty(singlePk.PropertyName) : null;
+
 			if (compositeKey)
-				ValidateCompositeKeyUniqueness(group, entityType, schema, pkColumns, rows, headers);
+				ValidateCompositeKeyUniqueness(group.Where(e => addedEntities.Contains(e)), entityType, schema, pkColumns, rows, headers);
 
 			foreach (var column in uniqueColumns)
 			{
 				var prop = entityType.GetProperty(column.PropertyName);
 				if (prop is null) continue;
 
-				int colIndex = headers.IndexOf(column.PropertyName);
-				if (colIndex < 0) colIndex = headers.IndexOf(column.Name);
+				int colIndex = HeaderIndexOf(headers, column);
 
-				var existing = new HashSet<string>(StringComparer.Ordinal);
+				var remoteValueToPk = new Dictionary<string, string>(StringComparer.Ordinal);
 				if (colIndex >= 0)
 					for (int i = 1; i < rows.Count; i++)
-						if (colIndex < rows[i].Count && rows[i][colIndex]?.ToString() is { Length: > 0 } v)
-							existing.Add(v);
+					{
+						if (colIndex >= rows[i].Count) continue;
+						var v = SheetsValueConverter.ToKeyString(rows[i][colIndex]);
+						if (v.Length == 0) continue;
+						remoteValueToPk[v] = pkIndex >= 0 && pkIndex < rows[i].Count ? SheetsValueConverter.ToKeyString(rows[i][pkIndex]) : "";
+					}
 
 				var label = column.IsPrimaryKey ? "primary key" : "unique column";
 				var seen = new HashSet<string>(StringComparer.Ordinal);
 				foreach (var entity in group)
 				{
-					var value = prop.GetValue(entity)?.ToString();
-					if (string.IsNullOrEmpty(value)) continue;
+					var value = SheetsValueConverter.ToKeyString(prop.GetValue(entity));
+					if (value.Length == 0) continue;
+					bool isAdded = addedSet.Contains(entity);
+					var ownPk = pkProp is not null ? SheetsValueConverter.ToKeyString(pkProp.GetValue(entity)) : "";
 
-					if (existing.Contains(value))
+					if (remoteValueToPk.TryGetValue(value, out var owningPk) && (isAdded || owningPk != ownPk))
 						throw new InvalidOperationException(
 							$"Duplicate value '{value}' for {label} '{column.PropertyName}' in '{schema.TableName}'. A row with this value already exists.");
 					if (!seen.Add(value))
 						throw new InvalidOperationException(
-							$"Duplicate value '{value}' for {label} '{column.PropertyName}' in '{schema.TableName}' within the pending inserts.");
+							$"Duplicate value '{value}' for {label} '{column.PropertyName}' in '{schema.TableName}' within the pending changes.");
 				}
 			}
 		}
+	}
+
+	private static int HeaderIndexOf(List<string> headers, ColumnSchema column)
+	{
+		int i = headers.IndexOf(column.PropertyName);
+		return i >= 0 ? i : headers.IndexOf(column.Name);
 	}
 
 	private static void ValidateCompositeKeyUniqueness(IEnumerable<object> group, Type entityType, EntitySchema schema, List<ColumnSchema> pkColumns, IList<IList<object>> rows, List<string> headers)
@@ -327,7 +349,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 			.ToList();
 
 		string KeyOf(IList<object> row) =>
-			string.Join("|", colIndexes.Select(ci => ci >= 0 && ci < row.Count ? row[ci]?.ToString() ?? string.Empty : string.Empty));
+			KeyEncoder.Encode(colIndexes.Select(ci => ci >= 0 && ci < row.Count ? SheetsValueConverter.ToKeyString(row[ci]) : string.Empty));
 
 		var existing = new HashSet<string>(StringComparer.Ordinal);
 		for (int i = 1; i < rows.Count; i++)
@@ -337,7 +359,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 		var keyNames = string.Join(", ", pkColumns.Select(c => c.PropertyName));
 		foreach (var entity in group)
 		{
-			var key = string.Join("|", props.Select(p => p!.GetValue(entity)?.ToString() ?? string.Empty));
+			var key = KeyEncoder.Encode(props.Select(p => SheetsValueConverter.ToKeyString(p!.GetValue(entity))));
 			if (existing.Contains(key))
 				throw new InvalidOperationException(
 					$"Duplicate composite key ({keyNames}) = '{key}' in '{schema.TableName}'. A row with this key already exists.");
@@ -348,9 +370,10 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 	}
 
 	/// <summary>
-	/// Validates FK references by fetching remote data, grouped by table to minimize API calls.
+	/// Validates FK references against remote data plus parents added in the same save, grouped
+	/// by table to minimize API calls. A reference to a parent being inserted now is not a violation.
 	/// </summary>
-	private async Task ValidateForeignKeyReferencesAsync(List<object> pendingEntities)
+	private async Task ValidateForeignKeyReferencesAsync(List<object> pendingEntities, List<object> addedEntities)
 	{
 		if (_currentSnapshot?.Entities is null || Provider is null) return;
 
@@ -369,13 +392,13 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 				if (prop is null) continue;
 
 				var value = prop.GetValue(entity);
-				if (value is null || IsDefaultFkValue(value, prop.PropertyType)) continue;
+				if (value is null || IsDefaultFkValue(value, prop.PropertyType, _currentSnapshot, column.ForeignKeyTable!)) continue;
 
 				var fkTableName = column.ForeignKeyTable!;
 				if (!fkChecks.ContainsKey(fkTableName))
 					fkChecks[fkTableName] = new HashSet<string>();
 
-				fkChecks[fkTableName].Add(value.ToString()!);
+				fkChecks[fkTableName].Add(SheetsValueConverter.ToKeyString(value));
 			}
 		}
 
@@ -385,32 +408,36 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 				throw new InvalidOperationException(
 					$"Foreign key validation failed: Referenced table '{referencedTable}' does not exist.");
 
-			var rows = await Provider.GetAllRowsAsync(referencedTable);
-			if (rows.Count <= 1)
-				throw new InvalidOperationException(
-					$"Foreign key validation failed: Referenced table '{referencedTable}' has no data. " +
-					$"Cannot reference IDs: {string.Join(", ", fkValues)}");
-
 			var referencedSchema = _currentSnapshot.Entities.GetValueOrDefault(referencedTable);
 			if (referencedSchema is null) continue;
 
 			var pkColumn = referencedSchema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
 			if (pkColumn is null) continue;
 
-			var headers = rows[0].Select(h => h?.ToString() ?? "").ToList();
-			int pkColumnIndex = headers.IndexOf(pkColumn.PropertyName);
-			if (pkColumnIndex < 0) pkColumnIndex = headers.IndexOf(pkColumn.Name);
-			if (pkColumnIndex < 0) continue;
+			var existingPks = new HashSet<string>(StringComparer.Ordinal);
 
-			var existingPks = new HashSet<string>();
-			for (int i = 1; i < rows.Count; i++)
+			var rows = await Provider.GetAllRowsAsync(referencedTable);
+			if (rows.Count > 0)
 			{
-				if (pkColumnIndex < rows[i].Count)
-				{
-					var pkVal = rows[i][pkColumnIndex]?.ToString();
-					if (!string.IsNullOrEmpty(pkVal))
-						existingPks.Add(pkVal);
-				}
+				var headers = rows[0].Select(h => h?.ToString() ?? "").ToList();
+				int pkColumnIndex = HeaderIndexOf(headers, pkColumn);
+				if (pkColumnIndex >= 0)
+					for (int i = 1; i < rows.Count; i++)
+						if (pkColumnIndex < rows[i].Count)
+						{
+							var pkVal = SheetsValueConverter.ToKeyString(rows[i][pkColumnIndex]);
+							if (pkVal.Length > 0) existingPks.Add(pkVal);
+						}
+			}
+
+			foreach (var added in addedEntities)
+			{
+				var t = added.GetType();
+				var sch = _currentSnapshot.Entities.Values.FirstOrDefault(e => e.ClassName == t.Name);
+				if (sch?.TableName != referencedTable) continue;
+				var pkv = t.GetProperty(pkColumn.PropertyName)?.GetValue(added);
+				var s = pkv is not null ? SheetsValueConverter.ToKeyString(pkv) : "";
+				if (s.Length > 0 && s != "0") existingPks.Add(s);
 			}
 
 			var missingFks = fkValues.Where(fk => !existingPks.Contains(fk)).ToList();
@@ -421,13 +448,18 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 		}
 	}
 
-	private static bool IsDefaultFkValue(object value, Type type)
+	private static bool IsDefaultFkValue(object value, Type type, MigrationSnapshot snapshot, string referencedTable)
 	{
 		var underlying = Nullable.GetUnderlyingType(type) ?? type;
-		if (underlying == typeof(int)) return (int)value == 0;
-		if (underlying == typeof(long)) return (long)value == 0;
-		if (underlying == typeof(short)) return (short)value == 0;
-		return false;
+		bool isZero = underlying == typeof(int) && (int)value == 0
+			|| underlying == typeof(long) && (long)value == 0
+			|| underlying == typeof(short) && (short)value == 0;
+		if (!isZero) return false;
+
+		// A zero FK is "unset" only when the referenced PK is auto-increment (identity ids start at 1);
+		// for a natural key, 0 may be a legitimate value that must be validated.
+		var referencedPk = snapshot.Entities.GetValueOrDefault(referencedTable)?.Columns.FirstOrDefault(c => c.IsPrimaryKey);
+		return referencedPk?.IsAutoIncrement ?? true;
 	}
 
 	/// <summary>

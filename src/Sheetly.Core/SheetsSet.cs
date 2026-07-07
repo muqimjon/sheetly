@@ -1,4 +1,5 @@
 using Sheetly.Core.Abstractions;
+using Sheetly.Core.Internal;
 using Sheetly.Core.Mapping;
 using Sheetly.Core.Migration;
 using System.Collections;
@@ -131,8 +132,8 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 	private string? GetPrimaryKeyString(T entity)
 	{
 		if (_pkColumns.Count == 0) return null;
-		var parts = _pkColumns.Select(c => typeof(T).GetProperty(c.PropertyName)?.GetValue(entity)?.ToString() ?? string.Empty);
-		return string.Join("|", parts);
+		var parts = _pkColumns.Select(c => SheetsValueConverter.ToKeyString(typeof(T).GetProperty(c.PropertyName)?.GetValue(entity)));
+		return KeyEncoder.Encode(parts);
 	}
 
 	private string? GetTokenString(T entity)
@@ -197,6 +198,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 
 		for (int i = 1; i < rows.Count; i++)
 		{
+			if (SheetsValueConverter.IsBlankRow(rows[i])) continue;
 			var entity = EntityMapper.MapFromRow<T>(rows[i], headers, schema);
 			result.Add(_asNoTracking ? entity : TrackLoaded(entity, i + 1));
 		}

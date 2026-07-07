@@ -15,9 +15,16 @@ public static class SnapshotBuilder
 			.Where(p => p.PropertyType.IsGenericType &&
 					   p.PropertyType.GetGenericTypeDefinition() == typeof(SheetsSet<>));
 
+		var seenNames = new Dictionary<string, Type>();
 		foreach (var set in sets)
 		{
 			var entityType = set.PropertyType.GetGenericArguments()[0];
+
+			if (seenNames.TryGetValue(entityType.Name, out var prior) && prior != entityType)
+				throw new InvalidOperationException(
+					$"Two entity types share the simple name '{entityType.Name}' ('{prior.FullName}' and '{entityType.FullName}'). " +
+					"Sheetly identifies entities by class name — rename one so the names are distinct.");
+			seenNames[entityType.Name] = entityType;
 
 			EntityMetadata? entityMetadata = null;
 			modelMetadata?.TryGetValue(entityType, out entityMetadata);
