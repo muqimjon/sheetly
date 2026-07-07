@@ -168,13 +168,14 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 		return Task.CompletedTask;
 	}
 
-	public Task AppendRowsAsync(string sheetName, IList<IList<object>> rows)
+	public Task<int> AppendRowsAsync(string sheetName, IList<IList<object>> rows)
 	{
-		if (rows.Count == 0) return Task.CompletedTask;
+		if (rows.Count == 0) return Task.FromResult(-1);
 
 		EnsureWorkbook();
 		var ws = GetWorksheet(sheetName);
-		int nextRow = GetNextEmptyRow(ws);
+		int firstRow = GetNextEmptyRow(ws);
+		int nextRow = firstRow;
 
 		foreach (var row in rows)
 		{
@@ -185,7 +186,27 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 		}
 
 		Save();
-		return Task.CompletedTask;
+		return Task.FromResult(firstRow);
+	}
+
+	public Task<IList<object?>> GetColumnAsync(string sheetName, int columnIndex)
+	{
+		EnsureWorkbook();
+		var result = new List<object?>();
+		if (_workbook!.TryGetWorksheet(sheetName, out var ws))
+		{
+			var rangeUsed = ws.RangeUsed();
+			if (rangeUsed is not null)
+			{
+				int lastRow = rangeUsed.LastRow().RowNumber();
+				for (int r = 1; r <= lastRow; r++)
+				{
+					var cell = ws.Cell(r, columnIndex + 1);
+					result.Add(cell.IsEmpty() ? null : CellObject(cell));
+				}
+			}
+		}
+		return Task.FromResult<IList<object?>>(result);
 	}
 
 	public async Task<long> GetAndIncrementIdAsync(string tableName, int count, int pkColumnIndex)

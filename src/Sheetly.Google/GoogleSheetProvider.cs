@@ -336,15 +336,43 @@ public class GoogleSheetProvider : ISheetsProvider
 			gate.Release();
 		}
 	}
-	public async Task AppendRowsAsync(string sheetName, IList<IList<object>> rows)
+	public async Task<int> AppendRowsAsync(string sheetName, IList<IList<object>> rows)
 	{
 		var vr = new ValueRange { Values = rows };
-		await ExecuteWithFailoverAsync(svc =>
+		var response = await ExecuteWithFailoverAsync(svc =>
 		{
 			var req = svc.Spreadsheets.Values.Append(vr, _spreadsheetId, $"{QuoteSheet(sheetName)}!A1");
 			req.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.RAW;
 			return req;
 		});
+		return ParseFirstRow(response?.Updates?.UpdatedRange);
+	}
+
+	private static int ParseFirstRow(string? updatedRange)
+	{
+		if (string.IsNullOrEmpty(updatedRange)) return -1;
+		int bang = updatedRange.LastIndexOf('!');
+		var a1 = bang >= 0 ? updatedRange[(bang + 1)..] : updatedRange;
+		int colon = a1.IndexOf(':');
+		var start = colon >= 0 ? a1[..colon] : a1;
+		var digits = new string(start.Where(char.IsDigit).ToArray());
+		return int.TryParse(digits, out var r) ? r : -1;
+	}
+
+	public async Task<IList<object?>> GetColumnAsync(string sheetName, int columnIndex)
+	{
+		var col = GetColumnLetter(columnIndex + 1);
+		var response = await ExecuteWithFailoverAsync(svc =>
+		{
+			var req = svc.Spreadsheets.Values.Get(_spreadsheetId, $"{QuoteSheet(sheetName)}!{col}:{col}");
+			req.ValueRenderOption = SpreadsheetsResource.ValuesResource.GetRequest.ValueRenderOptionEnum.UNFORMATTEDVALUE;
+			return req;
+		});
+		var result = new List<object?>();
+		if (response.Values is not null)
+			foreach (var row in response.Values)
+				result.Add(row.Count > 0 ? row[0] : null);
+		return result;
 	}
 
 	public async Task UpdateRowAsync(string sheetName, int rowIndex, IList<object> row)

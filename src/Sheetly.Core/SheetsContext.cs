@@ -239,8 +239,9 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 		if (allPendingEntities.Count > 0)
 			await ValidateForeignKeyReferencesAsync(allPendingEntities);
 
-		if (allDeletedEntities.Count > 0)
-			await ValidateForeignKeyConstraintsOnDelete(allDeletedEntities);
+		List<DeleteSideEffect> sideEffects = allDeletedEntities.Count > 0
+			? await PlanDeleteSideEffectsAsync(allDeletedEntities)
+			: [];
 
 		cancellationToken.ThrowIfCancellationRequested();
 
@@ -249,6 +250,10 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 		{
 			total += await ((ISheetsSetInternal)set).SaveChangesInternalAsync();
 		}
+
+		if (sideEffects.Count > 0)
+			await ExecuteDeleteSideEffectsAsync(sideEffects);
+
 		return total;
 	}
 
@@ -429,99 +434,122 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 	/// Enforces FK constraints on delete: Restrict, Cascade, SetNull, SetDefault.
 	/// Caches table data to minimize API calls when checking multiple FK relationships.
 	/// </summary>
-	private async Task ValidateForeignKeyConstraintsOnDelete(List<object> deletedEntities)
-	{
-		if (_currentSnapshot?.Entities is null || Provider is null) return;
+	private sealed record DeleteSideEffect(string ChildTable, string FkColumnName, ForeignKeyAction Action, object? FkDefault, string ParentPk);
 
-		// Cache table data to avoid duplicate API calls for the same table
-		var tableDataCache = new Dictionary<string, List<IList<object>>>();
+	/// <summary>
+	/// Read-only pass over deletions: throws for Restrict/NoAction violations (and non-nullable
+	/// SetNull) BEFORE any write happens, and records the Cascade/SetNull/SetDefault work to run
+	/// after the flush. Nothing here mutates the sheet.
+	/// </summary>
+	private async Task<List<DeleteSideEffect>> PlanDeleteSideEffectsAsync(List<object> deletedEntities)
+	{
+		var effects = new List<DeleteSideEffect>();
+		if (_currentSnapshot?.Entities is null || Provider is null) return effects;
+
+		var restrictCache = new Dictionary<string, List<IList<object>>>();
 
 		foreach (var deletedEntity in deletedEntities)
 		{
 			var entityType = deletedEntity.GetType();
-			var entitySchema = _currentSnapshot.Entities.Values
-				.FirstOrDefault(e => e.ClassName == entityType.Name);
+			var entitySchema = _currentSnapshot.Entities.Values.FirstOrDefault(e => e.ClassName == entityType.Name);
 			if (entitySchema is null) continue;
 
 			var pkColumn = entitySchema.Columns.FirstOrDefault(c => c.IsPrimaryKey);
 			if (pkColumn is null) continue;
-
-			var pkProp = entityType.GetProperty(pkColumn.PropertyName);
-			var pkValue = pkProp?.GetValue(deletedEntity);
+			var pkValue = entityType.GetProperty(pkColumn.PropertyName)?.GetValue(deletedEntity);
 			if (pkValue is null) continue;
+			var pkStr = SheetsValueConverter.ToKeyString(pkValue);
 
-			foreach (var otherEntity in _currentSnapshot.Entities.Values)
+			foreach (var child in _currentSnapshot.Entities.Values)
 			{
-				if (otherEntity.TableName == entitySchema.TableName) continue;
-
-				var fkColumns = otherEntity.Columns
-					.Where(c => c.IsForeignKey && c.ForeignKeyTable == entitySchema.TableName)
-					.ToList();
+				if (child.TableName == entitySchema.TableName) continue;
+				var fkColumns = child.Columns.Where(c => c.IsForeignKey && c.ForeignKeyTable == entitySchema.TableName).ToList();
 				if (fkColumns.Count == 0) continue;
+				if (!await Provider.SheetExistsAsync(child.TableName)) continue;
 
-				if (!await Provider.SheetExistsAsync(otherEntity.TableName)) continue;
-
-				if (!tableDataCache.TryGetValue(otherEntity.TableName, out var dataRows))
+				foreach (var fk in fkColumns)
 				{
-					dataRows = await Provider.GetAllRowsAsync(otherEntity.TableName);
-					tableDataCache[otherEntity.TableName] = dataRows;
-				}
-				if (dataRows.Count <= 1) continue;
-
-				var headerRow = dataRows[0];
-
-				foreach (var fkColumn in fkColumns)
-				{
-					int fkColumnIndex = -1;
-					for (int i = 0; i < headerRow.Count; i++)
+					if (fk.OnDelete is ForeignKeyAction.Restrict or ForeignKeyAction.NoAction)
 					{
-						if (headerRow[i]?.ToString() == fkColumn.PropertyName)
-						{ fkColumnIndex = i; break; }
-					}
-					if (fkColumnIndex < 0) continue;
-
-					var pkStr = pkValue.ToString();
-					var referencingRows = new List<int>();
-					for (int i = 1; i < dataRows.Count; i++)
-					{
-						if (fkColumnIndex < dataRows[i].Count &&
-							dataRows[i][fkColumnIndex]?.ToString() == pkStr)
-							referencingRows.Add(i);
-					}
-
-					if (referencingRows.Count == 0) continue;
-
-					switch (fkColumn.OnDelete)
-					{
-						case ForeignKeyAction.Restrict:
-						case ForeignKeyAction.NoAction:
+						if (!restrictCache.TryGetValue(child.TableName, out var rows))
+						{
+							rows = await Provider.GetAllRowsAsync(child.TableName);
+							restrictCache[child.TableName] = rows;
+						}
+						if (HasReferencingRow(rows, fk.Name, pkStr))
 							throw new InvalidOperationException(
-								$"Cannot delete '{entitySchema.TableName}' with ID '{pkValue}' because " +
-								$"{referencingRows.Count} record(s) in '{otherEntity.TableName}' reference it. " +
-								$"Delete the dependent records first or change the relationship to Cascade.");
-
-						case ForeignKeyAction.Cascade:
-							foreach (var rowIndex in referencingRows.OrderByDescending(x => x))
-								await Provider.DeleteRowAsync(otherEntity.TableName, rowIndex + 1);
-							break;
-
-						case ForeignKeyAction.SetNull:
-							if (!fkColumn.IsNullable)
-								throw new InvalidOperationException(
-									$"Cannot set FK '{fkColumn.PropertyName}' to NULL because it's not nullable.");
-							foreach (var rowIndex in referencingRows)
-								await Provider.UpdateValueAsync(otherEntity.TableName, GetCellAddress(fkColumnIndex, rowIndex), "");
-							break;
-
-						case ForeignKeyAction.SetDefault:
-							if (fkColumn.DefaultValue is not null)
-								foreach (var rowIndex in referencingRows)
-									await Provider.UpdateValueAsync(otherEntity.TableName, GetCellAddress(fkColumnIndex, rowIndex), fkColumn.DefaultValue);
-							break;
+								$"Cannot delete '{entitySchema.TableName}' with ID '{pkValue}' because record(s) in " +
+								$"'{child.TableName}' reference it. Delete the dependent records first or change the relationship to Cascade.");
+					}
+					else
+					{
+						if (fk.OnDelete == ForeignKeyAction.SetNull && !fk.IsNullable)
+							throw new InvalidOperationException($"Cannot set FK '{fk.Name}' to NULL because it's not nullable.");
+						effects.Add(new DeleteSideEffect(child.TableName, fk.Name, fk.OnDelete, fk.DefaultValue, pkStr));
 					}
 				}
 			}
 		}
+		return effects;
+	}
+
+	/// <summary>
+	/// Runs cascade/set-null/set-default after the main flush, re-reading each child table fresh
+	/// so row indexes are accurate even when several parents cascade into the same table.
+	/// </summary>
+	private async Task ExecuteDeleteSideEffectsAsync(List<DeleteSideEffect> effects)
+	{
+		if (Provider is null) return;
+
+		foreach (var group in effects.GroupBy(e => e.ChildTable))
+		{
+			var rows = await Provider.GetAllRowsAsync(group.Key);
+			if (rows.Count <= 1) continue;
+			var header = rows[0];
+
+			var toDelete = new SortedSet<int>();
+			var toClear = new List<(int col, int dataIndex, object? def)>();
+
+			foreach (var effect in group)
+			{
+				int col = HeaderIndex(header, effect.FkColumnName);
+				if (col < 0) continue;
+				for (int i = 1; i < rows.Count; i++)
+				{
+					if (col < rows[i].Count && SheetsValueConverter.ToKeyString(rows[i][col]) == effect.ParentPk)
+					{
+						if (effect.Action == ForeignKeyAction.Cascade) toDelete.Add(i + 1);
+						else toClear.Add((col, i, effect.Action == ForeignKeyAction.SetDefault ? effect.FkDefault : null));
+					}
+				}
+			}
+
+			foreach (var (col, dataIndex, def) in toClear)
+				if (!toDelete.Contains(dataIndex + 1))
+					await Provider.UpdateValueAsync(group.Key, GetCellAddress(col, dataIndex), def ?? "");
+
+			foreach (var row in toDelete.Reverse())
+				await Provider.DeleteRowAsync(group.Key, row);
+		}
+	}
+
+	private static bool HasReferencingRow(List<IList<object>> rows, string fkColumnName, string pkStr)
+	{
+		if (rows.Count <= 1) return false;
+		int col = HeaderIndex(rows[0], fkColumnName);
+		if (col < 0) return false;
+		for (int i = 1; i < rows.Count; i++)
+			if (col < rows[i].Count && SheetsValueConverter.ToKeyString(rows[i][col]) == pkStr)
+				return true;
+		return false;
+	}
+
+	private static int HeaderIndex(IList<object> header, string name)
+	{
+		for (int i = 0; i < header.Count; i++)
+			if (string.Equals(header[i]?.ToString(), name, StringComparison.OrdinalIgnoreCase))
+				return i;
+		return -1;
 	}
 
 	private static string GetCellAddress(int columnIndex, int rowIndex)

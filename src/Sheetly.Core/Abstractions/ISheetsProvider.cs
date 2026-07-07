@@ -14,7 +14,14 @@ public interface ISheetsProvider : IDisposable
 	/// </summary>
 	Task<int> FindRowIndexByKeyAsync(string sheetName, string keyValue, int keyColumnIndex);
 	Task AppendRowAsync(string sheetName, IList<object> row);
-	Task AppendRowsAsync(string sheetName, IList<IList<object>> rows);
+	/// <summary>Appends rows and returns the 1-based index of the first appended row (-1 if it can't be determined).</summary>
+	Task<int> AppendRowsAsync(string sheetName, IList<IList<object>> rows);
+	/// <summary>
+	/// Reads a whole column (0-based <paramref name="columnIndex"/>) aligned to rows: element[i] is the
+	/// cell at spreadsheet row i+1 (index 0 = header), <c>null</c> where the row has no such cell.
+	/// </summary>
+	Task<IList<object?>> GetColumnAsync(string sheetName, int columnIndex)
+		=> throw new NotSupportedException($"{GetType().Name} does not support column reads.");
 	/// <summary>
 	/// Atomically reserves <paramref name="count"/> auto-increment ids for a table. Zero-recovery
 	/// (when the stored counter is 0) scans the primary-key column at 0-based <paramref name="pkColumnIndex"/>.

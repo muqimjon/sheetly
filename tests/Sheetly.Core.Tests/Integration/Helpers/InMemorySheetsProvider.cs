@@ -129,13 +129,24 @@ public sealed class InMemorySheetsProvider : ISheetsProvider
 		return Task.CompletedTask;
 	}
 
-	public Task AppendRowsAsync(string sheetName, IList<IList<object>> rows)
+	public Task<int> AppendRowsAsync(string sheetName, IList<IList<object>> rows)
 	{
 		foreach (var row in rows) RawWrites.Add(row.ToList());
-		if (_sheets.TryGetValue(sheetName, out var sheet))
+		if (rows.Count == 0 || !_sheets.TryGetValue(sheetName, out var sheet))
+			return Task.FromResult(-1);
+		int firstRow = sheet.Count + 1;
+		foreach (var row in rows)
+			sheet.Add(CellValues(row));
+		return Task.FromResult(firstRow);
+	}
+
+	public Task<IList<object?>> GetColumnAsync(string sheetName, int columnIndex)
+	{
+		var result = new List<object?>();
+		if (_sheets.TryGetValue(sheetName, out var rows))
 			foreach (var row in rows)
-				sheet.Add(CellValues(row));
-		return Task.CompletedTask;
+				result.Add(columnIndex < row.Count ? row[columnIndex] : null);
+		return Task.FromResult<IList<object?>>(result);
 	}
 
 	public async Task<long> GetAndIncrementIdAsync(string tableName, int count, int pkColumnIndex)

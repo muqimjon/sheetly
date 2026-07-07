@@ -23,7 +23,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 {
 	private readonly Dictionary<T, EntityState> _trackedEntities = [];
 	private readonly Dictionary<T, int> _entityRowIndexes = [];
-	private readonly Dictionary<T, int> _snapshotHashes = [];
+	private readonly Dictionary<T, object?[]> _originalValues = [];
 	private readonly Dictionary<string, T> _identityMap = [];
 	private readonly List<string> _includes = [];
 	private bool _asNoTracking = false;
@@ -100,26 +100,32 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		foreach (var entry in _trackedEntities.ToList())
 		{
 			if (entry.Value != EntityState.Unchanged) continue;
-			if (!_snapshotHashes.TryGetValue(entry.Key, out var originalHash)) continue;
+			if (!_originalValues.TryGetValue(entry.Key, out var original)) continue;
 
-			if (ComputeEntityHash(entry.Key) != originalHash)
+			if (IsModified(entry.Key, original))
 				_trackedEntities[entry.Key] = EntityState.Modified;
 		}
 	}
 
 	/// <summary>
-	/// Computes a fast hash of entity property values by iterating mapped columns.
-	/// Avoids JsonSerializer overhead (~5-10x faster for typical entities).
+	/// Snapshots entity property values (one slot per mapped column) so DetectChanges and
+	/// OriginalValues can compare element-wise without serialization.
 	/// </summary>
-	private int ComputeEntityHash(T entity)
+	private object?[] ComputeEntityValues(T entity)
 	{
-		var hash = new HashCode();
-		foreach (var col in schema.Columns)
-		{
-			var prop = typeof(T).GetProperty(col.PropertyName);
-			hash.Add(prop?.GetValue(entity));
-		}
-		return hash.ToHashCode();
+		var values = new object?[schema.Columns.Count];
+		for (int i = 0; i < schema.Columns.Count; i++)
+			values[i] = typeof(T).GetProperty(schema.Columns[i].PropertyName)?.GetValue(entity);
+		return values;
+	}
+
+	private bool IsModified(T entity, object?[] original)
+	{
+		var current = ComputeEntityValues(entity);
+		if (current.Length != original.Length) return true;
+		for (int i = 0; i < current.Length; i++)
+			if (!Equals(current[i], original[i])) return true;
+		return false;
 	}
 
 	private string? GetPrimaryKeyString(T entity)
@@ -147,7 +153,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 
 		_trackedEntities[entity] = EntityState.Unchanged;
 		_entityRowIndexes[entity] = rowIndex;
-		_snapshotHashes[entity] = ComputeEntityHash(entity);
+		_originalValues[entity] = ComputeEntityValues(entity);
 		if (_concurrencyColumn is not null) _originalTokens[entity] = GetTokenString(entity);
 		if (pk is not null) _identityMap[pk] = entity;
 		return entity;
@@ -391,71 +397,151 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 	{
 		int changes = 0;
 
-		var toUpdate = _trackedEntities.Where(x => x.Value == EntityState.Modified).ToList();
-		var toAdd = _trackedEntities.Where(x => x.Value == EntityState.Added).ToList();
-		List<string> headers = toUpdate.Count > 0 || toAdd.Count > 0 ? await RefreshHeadersAsync() : [];
+		var toUpdate = _trackedEntities.Where(x => x.Value == EntityState.Modified).Select(x => x.Key).ToList();
+		var toAdd = _trackedEntities.Where(x => x.Value == EntityState.Added).Select(x => x.Key).ToList();
+		var toDelete = _trackedEntities.Where(x => x.Value == EntityState.Deleted).Select(x => x.Key).ToList();
+		List<string> headers = toUpdate.Count > 0 || toAdd.Count > 0 || toDelete.Count > 0 ? await RefreshHeadersAsync() : [];
 
-		foreach (var item in toUpdate)
+		foreach (var entity in toUpdate)
 		{
-			if (_entityRowIndexes.TryGetValue(item.Key, out int rowIndex))
+			int rowIndex = await ResolveRowIndexAsync(entity, headers);
+			if (rowIndex < 0) continue;
+			string? originalToken = _originalTokens.GetValueOrDefault(entity);
+			if (_concurrencyColumn is not null)
+				await EnsureConcurrencyAsync(entity, rowIndex);
+			try
 			{
-				if (_concurrencyColumn is not null)
-					await EnsureConcurrencyAsync(item.Key, rowIndex);
-				await provider.UpdateRowAsync(schema.TableName, rowIndex, EntityMapper.MapToRow(item.Key, schema, headers));
-				changes++;
+				await provider.UpdateRowAsync(schema.TableName, rowIndex, EntityMapper.MapToRow(entity, schema, headers));
 			}
+			catch
+			{
+				RevertRowVersion(entity, originalToken);
+				throw;
+			}
+			changes++;
 		}
 
-		var toDelete = _trackedEntities.Where(x => x.Value == EntityState.Deleted).ToList();
-		foreach (var item in toDelete.OrderByDescending(x => _entityRowIndexes.GetValueOrDefault(x.Key)))
+		var deletedRows = new List<int>();
+		foreach (var entity in toDelete)
 		{
-			if (_entityRowIndexes.TryGetValue(item.Key, out int rowIndex))
-			{
-				await provider.DeleteRowAsync(schema.TableName, rowIndex);
-				changes++;
-			}
+			int rowIndex = await ResolveRowIndexAsync(entity, headers);
+			if (rowIndex > 0) deletedRows.Add(rowIndex);
+		}
+		foreach (var rowIndex in deletedRows.OrderByDescending(x => x))
+		{
+			await provider.DeleteRowAsync(schema.TableName, rowIndex);
+			changes++;
 		}
 
 		if (toAdd.Count > 0 && _concurrencyColumn?.IsRowVersion == true)
 		{
 			var tokenProp = typeof(T).GetProperty(_concurrencyColumn.PropertyName);
 			if (tokenProp is not null)
-				foreach (var item in toAdd)
+				foreach (var entity in toAdd)
 				{
-					var v = tokenProp.GetValue(item.Key);
+					var v = tokenProp.GetValue(entity);
 					if (v is null || (v is IConvertible && Convert.ToInt64(v) == 0))
-						tokenProp.SetValue(item.Key, Convert.ChangeType(1L, Nullable.GetUnderlyingType(tokenProp.PropertyType) ?? tokenProp.PropertyType));
+						tokenProp.SetValue(entity, Convert.ChangeType(1L, Nullable.GetUnderlyingType(tokenProp.PropertyType) ?? tokenProp.PropertyType));
 				}
 		}
+
+		int firstAppendRow = -1;
 		if (toAdd.Count > 0)
 		{
+			var batchRows = new List<IList<object>>(toAdd.Count);
 			if (_pkColumn is not null && _pkColumn.IsAutoIncrement)
 			{
 				long nextId = await provider.GetAndIncrementIdAsync(schema.TableName, toAdd.Count, ResolvePkColumnIndex(headers));
-				var batchRows = new List<IList<object>>(toAdd.Count);
 				var pkProp = typeof(T).GetProperty(_pkColumn.PropertyName);
-				foreach (var item in toAdd)
+				foreach (var entity in toAdd)
 				{
-					pkProp?.SetValue(item.Key, Convert.ChangeType(nextId, pkProp.PropertyType));
-					batchRows.Add(EntityMapper.MapToRow(item.Key, schema, headers));
+					pkProp?.SetValue(entity, Convert.ChangeType(nextId, pkProp.PropertyType));
+					batchRows.Add(EntityMapper.MapToRow(entity, schema, headers));
 					nextId++;
 				}
-				await provider.AppendRowsAsync(schema.TableName, batchRows);
 			}
 			else
 			{
-				var batchRows = toAdd.Select(item => EntityMapper.MapToRow(item.Key, schema, headers)).ToList();
-				await provider.AppendRowsAsync(schema.TableName, (IList<IList<object>>)batchRows);
+				foreach (var entity in toAdd)
+					batchRows.Add(EntityMapper.MapToRow(entity, schema, headers));
 			}
+			firstAppendRow = await provider.AppendRowsAsync(schema.TableName, batchRows);
 			changes += toAdd.Count;
 		}
 
-		_trackedEntities.Clear();
-		_entityRowIndexes.Clear();
-		_snapshotHashes.Clear();
-		_identityMap.Clear();
-		_originalTokens.Clear();
+		ReBaseline(toAdd, deletedRows, firstAppendRow);
 		return changes;
+	}
+
+	/// <summary>
+	/// Resolves the 1-based sheet row for a tracked entity. Falls back to a key lookup for
+	/// disconnected entities; throws if the row can't be found (never a silent no-op).
+	/// </summary>
+	private async Task<int> ResolveRowIndexAsync(T entity, List<string> headers)
+	{
+		if (_entityRowIndexes.TryGetValue(entity, out int idx)) return idx;
+
+		var pk = _pkColumn is not null
+			? SheetsValueConverter.ToKeyString(typeof(T).GetProperty(_pkColumn.PropertyName)?.GetValue(entity))
+			: null;
+
+		// No real key ⇒ never persisted (e.g. Add then Remove before save); treat as detached no-op.
+		if (string.IsNullOrEmpty(pk) || pk == "0") return -1;
+
+		int found = await provider.FindRowIndexByKeyAsync(schema.TableName, pk, ResolvePkColumnIndex(headers));
+		if (found > 0) { _entityRowIndexes[entity] = found; return found; }
+
+		throw new DbUpdateConcurrencyException(
+			$"The row in '{schema.TableName}' (key '{pk}') no longer exists or was never loaded. Reload the entity and retry.");
+	}
+
+	private void RevertRowVersion(T entity, string? originalToken)
+	{
+		if (_concurrencyColumn?.IsRowVersion != true || originalToken is null) return;
+		var prop = typeof(T).GetProperty(_concurrencyColumn.PropertyName);
+		if (prop is not null && long.TryParse(originalToken, out var v))
+			prop.SetValue(entity, Convert.ChangeType(v, Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType));
+	}
+
+	/// <summary>
+	/// EF-style re-baseline after a flush: deleted entities leave the tracker, everyone else
+	/// becomes Unchanged with a refreshed snapshot and a corrected row index (surviving rows
+	/// shift up past deletions; appended rows take their new positions).
+	/// </summary>
+	private void ReBaseline(List<T> added, List<int> deletedRows, int firstAppendRow)
+	{
+		foreach (var entity in _trackedEntities.Where(x => x.Value == EntityState.Deleted).Select(x => x.Key).ToList())
+		{
+			_trackedEntities.Remove(entity);
+			_entityRowIndexes.Remove(entity);
+			_originalValues.Remove(entity);
+			_originalTokens.Remove(entity);
+		}
+
+		var sortedDeleted = deletedRows.OrderBy(x => x).ToList();
+		foreach (var entity in _entityRowIndexes.Keys.ToList())
+		{
+			int shift = sortedDeleted.Count(d => d < _entityRowIndexes[entity]);
+			if (shift > 0) _entityRowIndexes[entity] -= shift;
+		}
+
+		for (int i = 0; i < added.Count; i++)
+		{
+			if (firstAppendRow > 0)
+				_entityRowIndexes[added[i]] = firstAppendRow + i;
+			else
+				_trackedEntities.Remove(added[i]);
+		}
+
+		_identityMap.Clear();
+		foreach (var entity in _trackedEntities.Keys.ToList())
+		{
+			_trackedEntities[entity] = EntityState.Unchanged;
+			_originalValues[entity] = ComputeEntityValues(entity);
+			if (_concurrencyColumn is not null) _originalTokens[entity] = GetTokenString(entity);
+			var pk = GetPrimaryKeyString(entity);
+			if (pk is not null) _identityMap[pk] = entity;
+		}
 	}
 }
 
