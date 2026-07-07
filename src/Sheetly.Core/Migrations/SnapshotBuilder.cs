@@ -1,6 +1,8 @@
+using Sheetly.Core.Attributes;
 using Sheetly.Core.Internal;
 using Sheetly.Core.Migration;
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 using System.Reflection;
 
 namespace Sheetly.Core.Migrations;
@@ -44,6 +46,7 @@ public static class SnapshotBuilder
 			foreach (var prop in properties)
 			{
 				if (IsNavigationProperty(prop)) continue;
+				if (IsIgnored(prop, entityMetadata)) continue;
 
 				PropertyBuilder? propConfig = null;
 				entityMetadata?.Properties.TryGetValue(prop.Name, out propConfig);
@@ -126,6 +129,11 @@ public static class SnapshotBuilder
 		var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
 		return underlyingType.Name;
 	}
+
+	private static bool IsIgnored(PropertyInfo prop, EntityMetadata? metadata)
+		=> prop.IsDefined(typeof(NotMappedAttribute))
+		|| prop.IsDefined(typeof(IgnoreAttribute))
+		|| (metadata?.IgnoredProperties.Contains(prop.Name) ?? false);
 
 	private static bool IsNavigationProperty(PropertyInfo prop)
 	{

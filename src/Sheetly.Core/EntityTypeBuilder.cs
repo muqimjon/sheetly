@@ -36,6 +36,13 @@ public class EntityTypeBuilder<T> : EntityMetadata where T : class
 		return this;
 	}
 
+	/// <summary>Excludes a property from the model (EF Core <c>Ignore</c> / <c>[NotMapped]</c> equivalent).</summary>
+	public EntityTypeBuilder<T> Ignore<TProperty>(Expression<Func<T, TProperty>> propertyExpression)
+	{
+		IgnoredProperties.Add(GetPropertyName(propertyExpression));
+		return this;
+	}
+
 	public PropertyBuilder Property<TProperty>(Expression<Func<T, TProperty>> propertyExpression)
 	{
 		var name = GetPropertyName(propertyExpression);

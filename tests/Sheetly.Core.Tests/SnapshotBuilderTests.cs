@@ -135,10 +135,48 @@ public class SnapshotBuilderTests
 		Assert.False(pkColumn.IsNullable);
 	}
 
+	[Fact]
+	public void BuildFromContext_ShouldSkipNotMappedProperty()
+	{
+		var snapshot = SnapshotBuilder.BuildFromContext(typeof(TestContextWithComputed));
+		var schema = snapshot.Entities.Values.First(e => e.ClassName == "TestComputed");
+
+		Assert.DoesNotContain(schema.Columns, c => c.PropertyName == "FullName");
+		Assert.Contains(schema.Columns, c => c.PropertyName == "First");
+	}
+
+	[Fact]
+	public void BuildFromContext_ShouldRespectFluentIgnore()
+	{
+		var modelMetadata = new Dictionary<Type, EntityMetadata>();
+		var builder = new EntityTypeBuilder<TestUser>();
+		builder.Ignore(u => u.Age);
+		modelMetadata[typeof(TestUser)] = builder;
+
+		var snapshot = SnapshotBuilder.BuildFromContext(typeof(TestContext), modelMetadata);
+		var schema = snapshot.Entities.Values.First(e => e.ClassName == "TestUser");
+
+		Assert.DoesNotContain(schema.Columns, c => c.PropertyName == "Age");
+		Assert.Contains(schema.Columns, c => c.PropertyName == "Name");
+	}
+
 	// Test context classes
 	private class TestContext : SheetsContext
 	{
 		public SheetsSet<TestUser> Users { get; set; } = default!;
+	}
+
+	private class TestContextWithComputed : SheetsContext
+	{
+		public SheetsSet<TestComputed> Items { get; set; } = default!;
+	}
+
+	private class TestComputed
+	{
+		public int Id { get; set; }
+		public string First { get; set; } = "";
+		[NotMapped]
+		public string FullName => First;
 	}
 
 	private class TestContextWithFk : SheetsContext
