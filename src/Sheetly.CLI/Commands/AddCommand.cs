@@ -9,6 +9,7 @@ public class AddCommand : Command
 	private readonly Option<string?> _projectOption = new("--project", ["-p"]);
 	private readonly Option<bool> _noBuildOption = new("--no-build", ["-n"]);
 	private readonly Option<string?> _outputDirOption = new("--output-dir", ["-o"]);
+	private readonly Option<bool> _noRenameDetectionOption = new("--no-rename-detection") { Description = "Emit Drop+Add instead of detecting column renames." };
 
 	public AddCommand() : base("add", "Add a new migration")
 	{
@@ -16,6 +17,7 @@ public class AddCommand : Command
 		this.Add(_projectOption);
 		this.Add(_noBuildOption);
 		this.Add(_outputDirOption);
+		this.Add(_noRenameDetectionOption);
 
 		this.SetAction(async (parseResult, ct) =>
 		{
@@ -23,11 +25,12 @@ public class AddCommand : Command
 			bool noBuild = parseResult.GetValue(_noBuildOption);
 			string? projectPath = parseResult.GetValue(_projectOption);
 			string? outputDir = parseResult.GetValue(_outputDirOption);
-			await ExecuteAsync(name, noBuild, projectPath, outputDir, ct);
+			bool detectRenames = !parseResult.GetValue(_noRenameDetectionOption);
+			await ExecuteAsync(name, noBuild, projectPath, outputDir, detectRenames, ct);
 		});
 	}
 
-	private async Task ExecuteAsync(string? name, bool noBuild, string? projectPath, string? outputDir, CancellationToken ct)
+	private async Task ExecuteAsync(string? name, bool noBuild, string? projectPath, string? outputDir, bool detectRenames, CancellationToken ct)
 	{
 		if (string.IsNullOrWhiteSpace(name))
 		{
@@ -45,7 +48,7 @@ public class AddCommand : Command
 			var coreAsm = CliHelper.GetCoreAssembly(assembly, loadContext);
 			var contextType = CliHelper.FindContextType(assembly);
 
-			var json = CliHelper.InvokeDesignTime(coreAsm, "AddMigration", contextType, name, outputDir);
+			var json = CliHelper.InvokeDesignTime(coreAsm, "AddMigration", contextType, name, outputDir, detectRenames);
 			var doc = CliHelper.ParseResult(json);
 			if (doc is null) return;
 

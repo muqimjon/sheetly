@@ -39,7 +39,7 @@ public static class DesignTimeOperations
 	/// Returns JSON: { "success":true, "migrationFile":"...", "snapshotFile":"...", "operations":["CreateTable",...] }
 	/// Or: { "success":false, "error":"..." }
 	/// </summary>
-	public static string AddMigration(Type contextType, string name, string? outputDir)
+	public static string AddMigration(Type contextType, string name, string? outputDir, bool detectRenames = true)
 	{
 		try
 		{
@@ -58,7 +58,7 @@ public static class DesignTimeOperations
 			MigrationSnapshot? previousSnapshot = LoadExistingSnapshot(contextType);
 
 			var modelDiffer = new ModelDiffer();
-			var operations = modelDiffer.GetDifferences(previousSnapshot, currentSnapshot);
+			var operations = modelDiffer.GetDifferences(previousSnapshot, currentSnapshot, detectRenames);
 
 			if (operations.Count == 0)
 				return Error("No changes detected in the model.");
@@ -75,7 +75,7 @@ public static class DesignTimeOperations
 			string migrationId = $"{timestamp}_{name}";
 			string targetNamespace = ResolveNamespace(contextType);
 
-			var downOperations = modelDiffer.GetDifferences(currentSnapshot, previousSnapshot ?? new MigrationSnapshot());
+			var downOperations = modelDiffer.GetDifferences(currentSnapshot, previousSnapshot ?? new MigrationSnapshot(), detectRenames);
 
 			var generator = new CSharpMigrationGenerator();
 			string migrationCode = generator.GenerateMigration(name, migrationId, targetNamespace, operations, downOperations);
@@ -559,6 +559,18 @@ public static class DesignTimeOperations
 							if (alter.IsNullable.HasValue) col.IsNullable = alter.IsNullable.Value;
 							if (alter.MaxLength.HasValue) col.MaxLength = alter.MaxLength;
 							if (alter.DefaultValue is not null) col.DefaultValue = alter.DefaultValue;
+						}
+					}
+					break;
+
+				case RenameColumnOperation rename:
+					if (entities.TryGetValue(rename.Table, out var eRename))
+					{
+						var col = eRename.Columns.FirstOrDefault(c => c.Name == rename.Name);
+						if (col is not null)
+						{
+							col.Name = rename.NewName;
+							col.PropertyName = rename.NewName;
 						}
 					}
 					break;
