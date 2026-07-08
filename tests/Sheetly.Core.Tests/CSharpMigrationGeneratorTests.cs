@@ -1,3 +1,4 @@
+using Sheetly.Core.Migration;
 using Sheetly.Core.Migrations.Design;
 using Sheetly.Core.Migrations.Operations;
 
@@ -6,6 +7,49 @@ namespace Sheetly.Core.Tests;
 public class CSharpMigrationGeneratorTests
 {
 	private readonly CSharpMigrationGenerator _generator = new();
+
+	[Fact]
+	public void GenerateMigration_EmitsFullColumnConstraints()
+	{
+		var operations = new List<MigrationOperation>
+		{
+			new CreateTableOperation
+			{
+				Name = "Orders",
+				Columns =
+				{
+					new AddColumnOperation { Name = "Id", ClrType = typeof(int), IsPrimaryKey = true, IsAutoIncrement = true },
+					new AddColumnOperation { Name = "Name", ClrType = typeof(string), IsNullable = false, MinLength = 2, MaxLength = 50 },
+					new AddColumnOperation { Name = "Price", ClrType = typeof(decimal), IsNullable = false, MinValue = 0m, MaxValue = 999999m },
+					new AddColumnOperation { Name = "Version", ClrType = typeof(long), IsRowVersion = true },
+					new AddColumnOperation { Name = "CategoryId", ClrType = typeof(int), ForeignKeyTable = "Categories", OnDelete = ForeignKeyAction.Cascade }
+				}
+			}
+		};
+
+		var code = _generator.GenerateMigration("Init", "20260101000000_Init", "App.Migrations", operations);
+
+		Assert.Contains("using Sheetly.Core.Migration;", code);
+		Assert.Contains(".IsPrimaryKey().IsAutoIncrement()", code);
+		Assert.Contains(".HasMinLength(2)", code);
+		Assert.Contains(".HasRange(0m, 999999m)", code);
+		Assert.Contains(".IsRowVersion()", code);
+		Assert.Contains(".IsForeignKey(\"Categories\").OnDelete(ForeignKeyAction.Cascade)", code);
+	}
+
+	[Fact]
+	public void GenerateMigration_Down_ReAddsDroppedColumnWithConstraints()
+	{
+		var up = new List<MigrationOperation> { new DropColumnOperation { Table = "Orders", Name = "Note" } };
+		var down = new List<MigrationOperation>
+		{
+			new AddColumnOperation { Table = "Orders", Name = "Note", ClrType = typeof(string), IsNullable = false, MaxLength = 200, MinLength = 3 }
+		};
+
+		var code = _generator.GenerateMigration("DropNote", "20260101000000_DropNote", "App.Migrations", up, down);
+
+		Assert.Contains("builder.AddColumn<string>(\"Orders\", \"Note\", c => c.IsRequired().HasMaxLength(200).HasMinLength(3));", code);
+	}
 
 	[Fact]
 	public void GenerateMigration_ShouldGenerateValidClass()

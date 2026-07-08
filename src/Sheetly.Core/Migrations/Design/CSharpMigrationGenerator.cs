@@ -1,5 +1,7 @@
 using Sheetly.Core.Internal;
+using Sheetly.Core.Migration;
 using Sheetly.Core.Migrations.Operations;
+using System.Globalization;
 using System.Text;
 
 namespace Sheetly.Core.Migrations.Design;
@@ -29,6 +31,7 @@ public class CSharpMigrationGenerator
 	{
 		var sb = new StringBuilder();
 
+		sb.AppendLine("using Sheetly.Core.Migration;");
 		sb.AppendLine("using Sheetly.Core.Migrations;");
 		sb.AppendLine("using Sheetly.Core.Migrations.Operations;");
 		sb.AppendLine();
@@ -127,53 +130,11 @@ public class CSharpMigrationGenerator
 	private void GenerateColumn(StringBuilder sb, AddColumnOperation column, string indent, bool isLast)
 	{
 		var typeName = GetTypeName(column.ClrType);
-		var chain = new List<string>();
-
-		if (column.IsPrimaryKey)
-			chain.Add(".IsPrimaryKey()");
-		else if (!column.IsNullable)
-			chain.Add(".IsRequired()");
-
-		if (column.IsUnique)
-			chain.Add(".IsUnique()");
-
-		if (column.MaxLength.HasValue)
-			chain.Add($".HasMaxLength({column.MaxLength.Value})");
-
-		if (column.Precision.HasValue)
-		{
-			if (column.Scale.HasValue)
-				chain.Add($".HasPrecision({column.Precision.Value}, {column.Scale.Value})");
-			else
-				chain.Add($".HasPrecision({column.Precision.Value})");
-		}
-
-		if (column.DefaultValue is not null)
-			chain.Add($".HasDefaultValue({FormatValue(column.DefaultValue)})");
-
-		if (!string.IsNullOrEmpty(column.CheckConstraint))
-			chain.Add($".HasCheckConstraint(\"{EscapeString(column.CheckConstraint)}\")");
-
-		if (!string.IsNullOrEmpty(column.ForeignKeyTable))
-			chain.Add($".IsForeignKey(\"{EscapeString(column.ForeignKeyTable)}\")");
-
-		if (column.IsConcurrencyToken)
-			chain.Add(".IsConcurrencyToken()");
-
-		if (column.IsComputed && !string.IsNullOrEmpty(column.ComputedColumnSql))
-		{
-			var storedParam = column.IsStored.HasValue ? $", {column.IsStored.Value.ToString().ToLower()}" : "";
-			chain.Add($".HasComputedColumnSql(\"{EscapeString(column.ComputedColumnSql)}\"{storedParam})");
-		}
-
-		if (!string.IsNullOrEmpty(column.Comment))
-			chain.Add($".HasComment(\"{EscapeString(column.Comment)}\")");
-
-		var chainStr = string.Join("", chain);
+		var chain = BuildColumnChain(column);
 		var name = EscapeString(column.Name);
 
 		if (chain.Count > 0)
-			sb.AppendLine($"{indent}.Column<{typeName}>(\"{name}\", c => c{chainStr})");
+			sb.AppendLine($"{indent}.Column<{typeName}>(\"{name}\", c => c{string.Join("", chain)})");
 		else
 			sb.AppendLine($"{indent}.Column<{typeName}>(\"{name}\")");
 	}
@@ -181,48 +142,7 @@ public class CSharpMigrationGenerator
 	private void GenerateAddColumn(StringBuilder sb, AddColumnOperation column, string indent)
 	{
 		var typeName = GetTypeName(column.ClrType);
-		var chain = new List<string>();
-
-		if (column.IsPrimaryKey)
-			chain.Add(".IsPrimaryKey()");
-		else if (!column.IsNullable)
-			chain.Add(".IsRequired()");
-
-		if (column.IsUnique)
-			chain.Add(".IsUnique()");
-
-		if (column.MaxLength.HasValue)
-			chain.Add($".HasMaxLength({column.MaxLength.Value})");
-
-		if (column.Precision.HasValue)
-		{
-			if (column.Scale.HasValue)
-				chain.Add($".HasPrecision({column.Precision.Value}, {column.Scale.Value})");
-			else
-				chain.Add($".HasPrecision({column.Precision.Value})");
-		}
-
-		if (column.DefaultValue is not null)
-			chain.Add($".HasDefaultValue({FormatValue(column.DefaultValue)})");
-
-		if (!string.IsNullOrEmpty(column.CheckConstraint))
-			chain.Add($".HasCheckConstraint(\"{EscapeString(column.CheckConstraint)}\")");
-
-		if (!string.IsNullOrEmpty(column.ForeignKeyTable))
-			chain.Add($".IsForeignKey(\"{EscapeString(column.ForeignKeyTable)}\")");
-
-		if (column.IsConcurrencyToken)
-			chain.Add(".IsConcurrencyToken()");
-
-		if (column.IsComputed && !string.IsNullOrEmpty(column.ComputedColumnSql))
-		{
-			var storedParam = column.IsStored.HasValue ? $", {column.IsStored.Value.ToString().ToLower()}" : "";
-			chain.Add($".HasComputedColumnSql(\"{EscapeString(column.ComputedColumnSql)}\"{storedParam})");
-		}
-
-		if (!string.IsNullOrEmpty(column.Comment))
-			chain.Add($".HasComment(\"{EscapeString(column.Comment)}\")");
-
+		var chain = BuildColumnChain(column);
 		var table = EscapeString(column.Table);
 		var name = EscapeString(column.Name);
 
@@ -232,6 +152,75 @@ public class CSharpMigrationGenerator
 			sb.AppendLine($"{indent}builder.AddColumn<{typeName}>(\"{table}\", \"{name}\");");
 		sb.AppendLine();
 	}
+
+	/// <summary>
+	/// Builds the fluent constraint chain for a column so a generated Down() is self-sufficient —
+	/// every constraint (auto-increment, on-delete, ranges, row-version, …) is emitted, not left to
+	/// runtime enrichment against a snapshot that no longer contains the column.
+	/// </summary>
+	private List<string> BuildColumnChain(AddColumnOperation column)
+	{
+		var chain = new List<string>();
+
+		if (column.IsPrimaryKey)
+			chain.Add(".IsPrimaryKey()");
+		else if (!column.IsNullable)
+			chain.Add(".IsRequired()");
+
+		if (column.IsAutoIncrement)
+			chain.Add(".IsAutoIncrement()");
+
+		if (column.IsUnique)
+			chain.Add(".IsUnique()");
+
+		if (column.MaxLength.HasValue)
+			chain.Add($".HasMaxLength({column.MaxLength.Value})");
+
+		if (column.MinLength.HasValue)
+			chain.Add($".HasMinLength({column.MinLength.Value})");
+
+		if (column.Precision.HasValue)
+		{
+			if (column.Scale.HasValue)
+				chain.Add($".HasPrecision({column.Precision.Value}, {column.Scale.Value})");
+			else
+				chain.Add($".HasPrecision({column.Precision.Value})");
+		}
+
+		if (column.MinValue.HasValue && column.MaxValue.HasValue)
+			chain.Add($".HasRange({FormatDecimal(column.MinValue.Value)}, {FormatDecimal(column.MaxValue.Value)})");
+
+		if (column.DefaultValue is not null)
+			chain.Add($".HasDefaultValue({FormatValue(column.DefaultValue)})");
+
+		if (!string.IsNullOrEmpty(column.CheckConstraint))
+			chain.Add($".HasCheckConstraint(\"{EscapeString(column.CheckConstraint)}\")");
+
+		if (!string.IsNullOrEmpty(column.ForeignKeyTable))
+		{
+			chain.Add($".IsForeignKey(\"{EscapeString(column.ForeignKeyTable)}\")");
+			if (column.OnDelete != ForeignKeyAction.NoAction)
+				chain.Add($".OnDelete(ForeignKeyAction.{column.OnDelete})");
+		}
+
+		if (column.IsRowVersion)
+			chain.Add(".IsRowVersion()");
+		else if (column.IsConcurrencyToken)
+			chain.Add(".IsConcurrencyToken()");
+
+		if (column.IsComputed && !string.IsNullOrEmpty(column.ComputedColumnSql))
+		{
+			var storedParam = column.IsStored.HasValue ? $", {column.IsStored.Value.ToString().ToLower()}" : "";
+			chain.Add($".HasComputedColumnSql(\"{EscapeString(column.ComputedColumnSql)}\"{storedParam})");
+		}
+
+		if (!string.IsNullOrEmpty(column.Comment))
+			chain.Add($".HasComment(\"{EscapeString(column.Comment)}\")");
+
+		return chain;
+	}
+
+	private static string FormatDecimal(decimal value) => value.ToString(CultureInfo.InvariantCulture) + "m";
 
 	private void GenerateAlterColumn(StringBuilder sb, AlterColumnOperation operation, string indent)
 	{

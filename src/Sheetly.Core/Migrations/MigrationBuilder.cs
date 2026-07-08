@@ -1,3 +1,4 @@
+using Sheetly.Core.Migration;
 using Sheetly.Core.Migrations.Operations;
 
 namespace Sheetly.Core.Migrations;
@@ -221,6 +222,38 @@ public class ColumnBuilder
 	public ColumnBuilder IsConcurrencyToken()
 	{
 		_operation.IsConcurrencyToken = true;
+		return this;
+	}
+
+	public ColumnBuilder IsAutoIncrement()
+	{
+		_operation.IsAutoIncrement = true;
+		return this;
+	}
+
+	public ColumnBuilder IsRowVersion()
+	{
+		_operation.IsRowVersion = true;
+		_operation.IsConcurrencyToken = true;
+		return this;
+	}
+
+	public ColumnBuilder HasMinLength(int length)
+	{
+		_operation.MinLength = length;
+		return this;
+	}
+
+	public ColumnBuilder HasRange(decimal min, decimal max)
+	{
+		_operation.MinValue = min;
+		_operation.MaxValue = max;
+		return this;
+	}
+
+	public ColumnBuilder OnDelete(ForeignKeyAction action)
+	{
+		_operation.OnDelete = action;
 		return this;
 	}
 

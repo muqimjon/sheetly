@@ -45,21 +45,7 @@ public class ModelDiffer
 		};
 
 		foreach (var column in entity.Columns)
-		{
-			operation.Columns.Add(new AddColumnOperation
-			{
-				Table = entity.TableName,
-				Name = column.Name,
-				ClrType = GetClrType(column.DataType),
-				IsNullable = column.IsNullable,
-				IsPrimaryKey = column.IsPrimaryKey,
-				IsUnique = column.IsPrimaryKey || column.IsUnique,
-				IsAutoIncrement = column.IsAutoIncrement,
-				MaxLength = column.MaxLength,
-				DefaultValue = column.DefaultValue,
-				ForeignKeyTable = column.IsForeignKey ? column.ForeignKeyTable : null
-			});
-		}
+			operation.Columns.Add(AddColumn(entity.TableName, column));
 
 		return operation;
 	}
@@ -122,9 +108,22 @@ public class ModelDiffer
 		ClrType = GetClrType(column.DataType),
 		IsNullable = column.IsNullable,
 		IsPrimaryKey = column.IsPrimaryKey,
+		IsUnique = column.IsPrimaryKey || column.IsUnique,
+		IsAutoIncrement = column.IsAutoIncrement,
+		IsRowVersion = column.IsRowVersion,
+		IsConcurrencyToken = column.IsConcurrencyToken,
 		MaxLength = column.MaxLength,
+		MinLength = column.MinLength,
+		MinValue = column.MinValue,
+		MaxValue = column.MaxValue,
+		Precision = column.Precision,
+		Scale = column.Scale,
+		CheckConstraint = column.CheckConstraint,
+		Comment = column.Comment,
 		DefaultValue = column.DefaultValue,
-		ForeignKeyTable = column.IsForeignKey ? column.ForeignKeyTable : null
+		OnDelete = column.OnDelete,
+		ForeignKeyTable = column.IsForeignKey ? column.ForeignKeyTable : null,
+		ForeignKeyColumn = column.ForeignKeyColumn ?? "Id"
 	};
 
 	private static AlterColumnOperation AlterColumn(string tableName, ColumnSchema prevCol, ColumnSchema column) => new()
