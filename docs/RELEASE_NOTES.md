@@ -61,7 +61,9 @@ Writes now use Google's **`RAW`** input mode with native values, and reads use *
 - **Column-order integrity** — lookups and id generation resolve the primary-key column by header, so they keep working when the PK isn't in column A; `DropColumn` physically deletes on Google too (parity with Excel).
 - **Validation** — updates that violate a unique constraint now throw; a modified entity no longer conflicts with its own row; foreign-key checks no longer false-positive on a mix of existing and pending parents.
 - **Queries** — `AsNoTracking()` / `Include(...)` options no longer leak into the next query on the same set; blank rows are skipped.
-- **Migrations** — sheet rewrites are near-atomic (`ReplaceSheetDataAsync`) so an interrupted rewrite can't corrupt the bookkeeping sheets; `migrations remove` refuses to delete an applied migration unless `--force`; `migrations list` shows applied/pending status; scaffolding emits navigation properties instead of `[ForeignKey]`.
+- **Migrations** — sheet rewrites are near-atomic (`ReplaceSheetDataAsync`) so an interrupted rewrite can't corrupt the bookkeeping sheets; `migrations remove` refuses to delete an applied migration unless `--force`; `migrations list` shows applied/pending status; scaffolding emits navigation properties instead of `[ForeignKey]`. Unambiguous column renames are detected (a same-type drop+add becomes a data-preserving `RenameColumn`, with a `--no-rename-detection` opt-out), and generated `Down()` methods are self-contained — every constraint is emitted so a rollback re-creates columns exactly.
+- **CLI** — the tool resolves provider dependencies (ClosedXML, Google.Apis) from the project's `deps.json`, so a `SheetsContext` that lives in a **class library** works with `database update` / `rollback` / `scaffold`, not only in an executable project.
+- **DI** — once a context + connection passes startup verification, the remote migration/model re-check is skipped for the rest of the process, so one context per web request doesn't re-read the history sheet every time.
 - **Excel** — writes are buffered and flushed once per `SaveChanges` / migration / dispose instead of a full file save on every cell write.
 
 ---
@@ -70,9 +72,6 @@ Writes now use Google's **`RAW`** input mode with native values, and reads use *
 
 Dead code removed (`ScaffoldService`, `ContextResolver`, `ExcelScriptGenerator`, a stray `.bak2`), and
 **`Sheetly.Core` no longer depends on ClosedXML** — a lighter core package.
-
-Deferred to a later release: automatic column-rename detection, fully self-contained `Down()`
-migrations, and a process-wide startup-verification cache for DI.
 
 ---
 
