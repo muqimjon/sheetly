@@ -70,6 +70,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 
 	public virtual async Task InitializeAsync(ISheetsProvider? provider = null, IMigrationService? migrationService = null)
 	{
+		string? verificationKey = null;
 		if (provider is null)
 		{
 			var options = _constructorOptions ?? new SheetsOptions();
@@ -80,6 +81,8 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 				"ISheetsProvider not configured. Call UseGoogleSheets in OnConfiguring or pass SheetsContextOptions via constructor.");
 			migrationService ??= options.MigrationService;
 			_logger = options.Logger;
+			if (options.ConnectionString is not null)
+				verificationKey = $"{GetType().FullName}|{options.ConnectionString}";
 		}
 
 		this.Provider = provider;
@@ -94,8 +97,14 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 
 		Database = new DatabaseFacade(this.Provider, migrationService, GetType(), _currentSnapshot);
 
-		await CheckMigrationSyncAsync();
-		CheckModelSnapshotSync();
+		// Skip the remote migration/model re-check once this process has verified this
+		// (context type + connection); the model is fixed at compile time.
+		if (verificationKey is null || !SheetsRuntimeState.IsVerified(verificationKey))
+		{
+			await CheckMigrationSyncAsync();
+			CheckModelSnapshotSync();
+			if (verificationKey is not null) SheetsRuntimeState.MarkVerified(verificationKey);
+		}
 
 		InitializeSets(provider, _currentSnapshot);
 	}
