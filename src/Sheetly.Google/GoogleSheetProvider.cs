@@ -64,8 +64,9 @@ public class GoogleSheetProvider : ISheetsProvider, ISupportsLogging
 				when (ex.HttpStatusCode == System.Net.HttpStatusCode.Forbidden)
 			{
 				throw new InvalidOperationException(
-					$"Access denied to spreadsheet '{_spreadsheetId}'. " +
-					"Make sure every service account in credentials.json has at least 'Editor' permission on the Google Sheet.", ex);
+					$"Access denied to spreadsheet '{_spreadsheetId}' (Google API: {ex.Error?.Message ?? ex.Message}). " +
+					"Check that the Google Sheets API is enabled for the project and every service account in " +
+					"credentials.json has at least 'Editor' permission on the sheet.", ex);
 			}
 			catch (global::Google.GoogleApiException ex)
 				when (ex.HttpStatusCode == System.Net.HttpStatusCode.ServiceUnavailable)
