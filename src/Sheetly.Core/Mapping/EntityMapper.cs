@@ -14,7 +14,8 @@ internal static class EntityMapper
 	private static Dictionary<string, PropertyInfo> GetProperties(Type type)
 		=> _propertyCache.GetOrAdd(type, t =>
 			t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-			 .ToDictionary(p => p.Name));
+			 .GroupBy(p => p.Name)
+			 .ToDictionary(g => g.Key, g => g.Aggregate((a, b) => b.DeclaringType!.IsSubclassOf(a.DeclaringType!) ? b : a)));
 
 	public static string GetTableName(Type type) => NamingConventions.GetTableName(type);
 
