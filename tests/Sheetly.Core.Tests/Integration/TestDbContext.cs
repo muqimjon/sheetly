@@ -19,9 +19,21 @@ public class TestDbContext : SheetsContext
 	public SheetsSet<Employee> Employees { get; set; } = default!;
 	public SheetsSet<Document> Documents { get; set; } = default!;
 	public SheetsSet<OrderLine> OrderLines { get; set; } = default!;
+	public SheetsSet<ProductRecord> ProductRecords { get; set; } = default!;
+	public SheetsSet<KeyedNote> KeyedNotes { get; set; } = default!;
+	public SheetsSet<AggregateLine> AggregateLines { get; set; } = default!;
 
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{
+		modelBuilder.Entity<ProductRecord>(e => e.HasSheetName("ProductRecords"));
+		modelBuilder.Entity<KeyedNote>(e => e.HasSheetName("KeyedNotes"));
+
+		modelBuilder.Entity<AggregateLine>(e =>
+		{
+			e.HasSheetName("AggregateLines");
+			e.HasKey(l => new { l.OrderId, l.LineNo });
+		});
+
 		modelBuilder.Entity<OrderLine>(e =>
 		{
 			e.HasSheetName("OrderLines");

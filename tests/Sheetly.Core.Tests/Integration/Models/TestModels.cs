@@ -76,3 +76,30 @@ public class UserAccount
 	public string Username { get; set; } = string.Empty;
 	public string Email { get; set; } = string.Empty;
 }
+
+public record ProductRecord
+{
+	public int Id { get; set; }
+	public string Name { get; set; } = string.Empty;
+	public decimal Price { get; set; }
+}
+
+public class KeyedNote
+{
+	public int Id { get; set; }
+	public string Text { get; set; } = string.Empty;
+
+	public override bool Equals(object? obj) => obj is KeyedNote other && other.Id == Id;
+	public override int GetHashCode() => Id.GetHashCode();
+}
+
+public class AggregateLine
+{
+	public int OrderId { get; set; }
+	public int LineNo { get; set; }
+	public string Product { get; set; } = string.Empty;
+	public int Quantity { get; set; }
+
+	public override bool Equals(object? obj) => obj is AggregateLine other && other.OrderId == OrderId;
+	public override int GetHashCode() => OrderId.GetHashCode();
+}

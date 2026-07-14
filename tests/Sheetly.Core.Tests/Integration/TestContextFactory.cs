@@ -51,6 +51,9 @@ public static class TestContextFactory
 		await provider.CreateSheetAsync("Employees", new[] { "Id", "Name", "DepartmentId" });
 		await provider.CreateSheetAsync("Documents", new[] { "Id", "Title", "Version" });
 		await provider.CreateSheetAsync("OrderLines", new[] { "OrderId", "LineNo", "Product", "Quantity" });
+		await provider.CreateSheetAsync("ProductRecords", new[] { "Id", "Name", "Price" });
+		await provider.CreateSheetAsync("KeyedNotes", new[] { "Id", "Text" });
+		await provider.CreateSheetAsync("AggregateLines", new[] { "OrderId", "LineNo", "Product", "Quantity" });
 
 		// Create __SheetlySchema__ with a PK-tracking row for each entity
 		await provider.CreateSheetAsync("__SheetlySchema__", SchemaHeaders);
@@ -60,6 +63,8 @@ public static class TestContextFactory
 		await AppendSchemaRowAsync(provider, "Department", "Departments", "Id");
 		await AppendSchemaRowAsync(provider, "Employee", "Employees", "Id");
 		await AppendSchemaRowAsync(provider, "Document", "Documents", "Id");
+		await AppendSchemaRowAsync(provider, "ProductRecord", "ProductRecords", "Id");
+		await AppendSchemaRowAsync(provider, "KeyedNote", "KeyedNotes", "Id");
 	}
 
 	/// <summary>

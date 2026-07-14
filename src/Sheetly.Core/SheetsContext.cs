@@ -448,7 +448,7 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 			var pkProp = singlePk is not null ? entityType.GetProperty(singlePk.PropertyName) : null;
 
 			if (compositeKey)
-				ValidateCompositeKeyUniqueness(group.Where(e => addedEntities.Contains(e)), entityType, schema, pkColumns, rows, headers);
+				ValidateCompositeKeyUniqueness(group.Where(addedSet.Contains), entityType, schema, pkColumns, rows, headers);
 
 			foreach (var column in uniqueColumns)
 			{

@@ -32,9 +32,9 @@ internal interface ISheetsSetInternal
 
 public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Dictionary<string, EntitySchema> allSchemas) : ISheetsSetInternal where T : class, new()
 {
-	private readonly Dictionary<T, EntityState> _trackedEntities = [];
-	private readonly Dictionary<T, int> _entityRowIndexes = [];
-	private readonly Dictionary<T, object?[]> _originalValues = [];
+	private readonly Dictionary<T, EntityState> _trackedEntities = new(ReferenceEqualityComparer.Instance);
+	private readonly Dictionary<T, int> _entityRowIndexes = new(ReferenceEqualityComparer.Instance);
+	private readonly Dictionary<T, object?[]> _originalValues = new(ReferenceEqualityComparer.Instance);
 	private readonly Dictionary<string, T> _identityMap = [];
 	private readonly List<string> _includes = [];
 	private bool _asNoTracking = false;
@@ -46,7 +46,7 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 	private readonly List<ColumnSchema> _pkColumns = schema.Columns.Where(c => c.IsPrimaryKey).ToList();
 	// Optimistic-concurrency column (if configured) and the token values seen at load time
 	private readonly ColumnSchema? _concurrencyColumn = schema.Columns.FirstOrDefault(c => c.IsConcurrencyToken || c.IsRowVersion);
-	private readonly Dictionary<T, string?> _originalTokens = [];
+	private readonly Dictionary<T, string?> _originalTokens = new(ReferenceEqualityComparer.Instance);
 
 	private async ValueTask<List<string>> GetHeadersAsync()
 	{
