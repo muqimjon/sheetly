@@ -39,27 +39,28 @@ jobs:
             echo "Invalid version '$VERSION' (expected N.N.N or N.N.N-suffix)" >&2
             exit 1
           fi
+          CORE_VERSION=$(grep -m1 '<Version>' src/Sheetly.Core/Sheetly.Core.csproj | sed 's/.*<Version>\(.*\)<\/Version>.*/\1/' | tr -d '[:space:]')
+          if [ "$VERSION" != "$CORE_VERSION" ]; then
+            echo "Tag says '$VERSION' but Sheetly.Core.csproj says '$CORE_VERSION'" >&2
+            exit 1
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Releasing v$VERSION"
 
+      # Each package carries its own <Version>; packages whose version is already on
+      # nuget.org are skipped, so unchanged ones are simply not re-released.
       - name: Build
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: dotnet build Sheetly.sln -c Release --no-incremental -p:Version="$VERSION"
+        run: dotnet build Sheetly.sln -c Release --no-incremental
 
       - name: Test
         run: dotnet test tests/Sheetly.Core.Tests/ -c Release --no-build --verbosity normal
 
       - name: Pack
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: dotnet pack Sheetly.sln -c Release --no-build -o ./nupkg -p:Version="$VERSION"
+        run: dotnet pack Sheetly.sln -c Release --no-build -o ./nupkg
 
       - name: Push to NuGet
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          dotnet nuget push "nupkg/*.$VERSION.nupkg" \
+          dotnet nuget push "nupkg/*.nupkg" \
             -k "${{ secrets.NUGET_API_KEY }}" -s https://api.nuget.org/v3/index.json --skip-duplicate
 
       - name: Create GitHub Release
