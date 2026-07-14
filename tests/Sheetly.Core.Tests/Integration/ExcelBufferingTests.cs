@@ -50,6 +50,36 @@ public class ExcelBufferingTests : IDisposable
 		Assert.Equal(1, (await reopened.GetAllRowsAsync("T")).Count - 1);
 	}
 
+	[Fact]
+	public async Task DropDatabase_OnAFileThatDoesNotExist_DoesNotThrow()
+	{
+		await using var provider = new ExcelSheetProvider(_path);
+		await provider.InitializeAsync();
+
+		await provider.DropDatabaseAsync();
+		await provider.FlushAsync();
+
+		Assert.False(File.Exists(_path));
+	}
+
+	[Fact]
+	public async Task DropDatabase_OnAFileThatDoesNotExist_DoesNotSwallowTheNextWrite()
+	{
+		await using (var provider = new ExcelSheetProvider(_path))
+		{
+			await provider.InitializeAsync();
+			await provider.DropDatabaseAsync();
+			await provider.FlushAsync();
+
+			await provider.CreateSheetAsync("T", ["A"]);
+			await provider.AppendRowAsync("T", ["1"]);
+		}
+
+		await using var reopened = new ExcelSheetProvider(_path);
+		await reopened.InitializeAsync();
+		Assert.Equal(2, (await reopened.GetAllRowsAsync("T")).Count);
+	}
+
 	public void Dispose()
 	{
 		if (File.Exists(_path)) File.Delete(_path);

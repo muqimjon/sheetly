@@ -442,12 +442,13 @@ public sealed class ExcelSheetProvider(string filePath) : ISheetsProvider, IAsyn
 
 	private void Persist()
 	{
-		if (!_dirty || _workbook is null) return;
+		// A workbook with no worksheets cannot be written (e.g. EnsureDeleted on a file that does
+		// not exist yet); stay dirty so the next Persist writes once a sheet has been created.
+		if (!_dirty || _workbook is null || _workbook.Worksheets.Count == 0) return;
 
 		// Excel requires at least one visible worksheet; if only hidden system sheets remain
 		// (e.g. after rolling back every migration), unhide one so the file stays valid.
-		if (_workbook.Worksheets.Count > 0 &&
-			!_workbook.Worksheets.Any(w => w.Visibility == XLWorksheetVisibility.Visible))
+		if (!_workbook.Worksheets.Any(w => w.Visibility == XLWorksheetVisibility.Visible))
 			_workbook.Worksheets.First().Visibility = XLWorksheetVisibility.Visible;
 
 		_workbook.SaveAs(_filePath);
