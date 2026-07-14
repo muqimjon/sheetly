@@ -56,7 +56,11 @@ Sheetly stores all its bookkeeping inside the spreadsheet itself, in hidden shee
 
 ### Change tracking
 
-`SheetsSet<T>` tracks loaded entities by reference and stores a `ComputeEntityHash` snapshot per entity. `DetectChanges()` (called from `SaveChangesAsync`) promotes `Unchanged → Modified` when the hash differs, so users get EF-style implicit updates without calling `Update()`. `AsNoTracking()` skips this. Hashing iterates mapped columns directly rather than serializing — keep it that way.
+`SheetsSet<T>` keeps an `object?[]` snapshot of the mapped columns per entity (`ComputeEntityValues`). `DetectChanges()` (called from `SaveChangesAsync`) compares against it (`IsModified`) and promotes `Unchanged → Modified`, so users get EF-style implicit updates without calling `Update()`. `AsNoTracking()` skips this. The snapshot iterates mapped columns directly rather than serializing — keep it that way.
+
+**Every tracker dictionary must be keyed by reference identity** (`new(ReferenceEqualityComparer.Instance)`), never by the default comparer. Entities are mutable and users write `record`s and override `Equals`/`GetHashCode`; a value-equality key changes the moment a property is edited, which silently re-inserts rows and loses updates. `_identityMap` is the one exception — it is keyed by the primary-key string on purpose (logical identity).
+
+Anything that writes to the sheet outside a set's own flush — currently cascade and set-null side effects in `SheetsContext.ExecuteDeleteSideEffectsAsync` — must hand the affected rows back to the child set via `ISheetsSetInternal.ApplyExternalChanges`, or the set's cached row indexes go stale and the next `SaveChanges` overwrites the wrong row.
 
 ### Migration engine (design-time)
 

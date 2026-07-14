@@ -1,3 +1,32 @@
+# 🐛 Sheetly v1.3.1 — please update
+
+This one is all bug fixes, and a few of them are the kind that quietly eat your data. No API changed,
+no code to rewrite — just bump the version.
+
+**If you use `record` entities, or you override `Equals` / `GetHashCode`, update now.** The change
+tracker was keying entities by *value*, so the moment you edited a property the entity became a
+different key. The fallout: your edit got saved as a brand-new row, the original was left orphaned,
+and every following `SaveChanges` appended the whole set again. Two `record`s that happened to be
+equal collapsed into one, and one of them never got an id.
+
+**Cascade and set-null deletes now tell the change tracker what they did.** They used to write
+straight to the sheet behind its back, which left the surviving children pointing at the wrong row
+numbers — so your next edit to a sibling would land on, and overwrite, someone else's row. Children
+removed by a cascade stayed in the tracker as zombies, and a `SetNull` never showed up in memory, so
+the entity turned into a brick that threw a bogus foreign-key error on every later save.
+
+Also fixed:
+
+- **Excel: `EnsureDeleted()` on a file that doesn't exist yet** crashed with *"Workbooks need at least
+  one worksheet"*. It doesn't anymore.
+- **Inherited models** that shadow a base property with `new` no longer crash the mapper.
+- **`Sheetly.DependencyInjection` no longer drags in `Sheetly.Google`.** If you use DI *and* Google
+  Sheets, add `Sheetly.Google` yourself: `dotnet add package Sheetly.Google`. (The README always told
+  you to — now the package graph agrees.) Excel-only users stop pulling the Google API client
+  entirely. This is why DI jumps to **1.4.0** while everything else is **1.3.1**.
+
+---
+
 # 🚀 Sheetly v1.3.0 — it's EF Core, except the database is a spreadsheet
 
 Know EF Core? Then you already know Sheetly. This release adds the APIs your fingers reach for
@@ -83,7 +112,7 @@ The full list is in [BREAKING_CHANGES.md](BREAKING_CHANGES.md), but the short ve
 - Values are written in `RAW` / native mode now — new `DateTime` cells are ISO text, and a leading `=` stays text.
 - Entities stay tracked after `SaveChanges`; a disconnected `Update` / `Remove` of a missing row now throws instead of quietly doing nothing.
 - `AsNoTracking()` / `Include(...)` no longer "stick" to the next query on the same set.
-- Recompile against 1.3.0 — a few methods changed return types (e.g. `Add` now returns an `EntityEntry`).
+- Recompile against 1.3.0 — `ChangeTracker.Entries()` and `Entry(entity)` hand you an `EntityEntry`, so you can read and set `State` directly.
 
 ---
 

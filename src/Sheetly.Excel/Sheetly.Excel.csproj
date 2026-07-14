@@ -6,7 +6,7 @@
 		<Nullable>enable</Nullable>
 
 		<PackageId>Sheetly.Excel</PackageId>
-		<Version>1.3.0</Version>
+		<Version>1.3.1</Version>
 		<Company>Dotnetolog</Company>
 		<Authors>Muqimjon Mamadaliyev</Authors>
 		<Copyright>Copyright (c) 2025–2026 Muqimjon Mamadaliyev</Copyright>
