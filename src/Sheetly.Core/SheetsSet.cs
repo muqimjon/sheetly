@@ -25,6 +25,7 @@ internal interface ISheetsSetInternal
 	void SetEntityState(object entity, EntityState state);
 	bool HasTrackedChanges();
 	void ClearTracking();
+	void ApplyExternalChanges(IReadOnlyList<int> deletedRows, IReadOnlyList<(int Row, string Column, object? Value)> clearedCells);
 	IReadOnlyDictionary<string, object?> GetCurrentValues(object entity);
 	IReadOnlyDictionary<string, object?> GetOriginalValues(object entity);
 	Task ReloadEntityAsync(object entity);
@@ -172,6 +173,37 @@ public class SheetsSet<T>(ISheetsProvider provider, EntitySchema schema, Diction
 		_originalValues.Clear();
 		_originalTokens.Clear();
 		_identityMap.Clear();
+	}
+
+	void ISheetsSetInternal.ApplyExternalChanges(IReadOnlyList<int> deletedRows, IReadOnlyList<(int Row, string Column, object? Value)> clearedCells)
+	{
+		foreach (var (row, column, value) in clearedCells)
+		{
+			var col = schema.Columns.FirstOrDefault(c => c.Name.Equals(column, StringComparison.OrdinalIgnoreCase));
+			var prop = col is not null ? typeof(T).GetProperty(col.PropertyName) : null;
+			if (col is null || prop is null || !prop.CanWrite) continue;
+
+			foreach (var entity in _entityRowIndexes.Where(x => x.Value == row).Select(x => x.Key).ToList())
+			{
+				prop.SetValue(entity, SheetsValueConverter.FromCell(value, prop.PropertyType, col.PropertyName));
+				_trackedEntities[entity] = EntityState.Unchanged;
+				_originalValues[entity] = ComputeEntityValues(entity);
+				if (_concurrencyColumn is not null) _originalTokens[entity] = GetTokenString(entity);
+			}
+		}
+
+		if (deletedRows.Count == 0) return;
+
+		var deleted = deletedRows.ToHashSet();
+		foreach (var entity in _entityRowIndexes.Where(x => deleted.Contains(x.Value)).Select(x => x.Key).ToList())
+			RemoveTracking(entity);
+
+		var sortedDeleted = deletedRows.OrderBy(x => x).ToList();
+		foreach (var entity in _entityRowIndexes.Keys.ToList())
+		{
+			int shift = sortedDeleted.Count(d => d < _entityRowIndexes[entity]);
+			if (shift > 0) _entityRowIndexes[entity] -= shift;
+		}
 	}
 
 	IReadOnlyDictionary<string, object?> ISheetsSetInternal.GetCurrentValues(object entity)

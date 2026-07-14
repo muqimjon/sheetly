@@ -710,13 +710,27 @@ public abstract class SheetsContext : IDisposable, IAsyncDisposable
 				}
 			}
 
+			var cleared = new List<(int Row, string Column, object? Value)>();
 			foreach (var (col, dataIndex, def) in toClear)
 				if (!toDelete.Contains(dataIndex + 1))
+				{
 					await Provider.UpdateValueAsync(group.Key, GetCellAddress(col, dataIndex), def ?? "");
+					cleared.Add((dataIndex + 1, header[col]?.ToString() ?? string.Empty, def));
+				}
 
 			foreach (var row in toDelete.Reverse())
 				await Provider.DeleteRowAsync(group.Key, row);
+
+			SetForTable(group.Key)?.ApplyExternalChanges([.. toDelete], cleared);
 		}
+	}
+
+	private ISheetsSetInternal? SetForTable(string tableName)
+	{
+		if (_currentSnapshot is null || !_currentSnapshot.Entities.TryGetValue(tableName, out var schema)) return null;
+		foreach (var (type, set) in sets)
+			if (type.Name == schema.ClassName) return (ISheetsSetInternal)set;
+		return null;
 	}
 
 	private static bool HasReferencingRow(List<IList<object>> rows, string fkColumnName, string pkStr)
